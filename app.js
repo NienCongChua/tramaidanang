@@ -1014,7 +1014,7 @@ function applySpeechVoice(utterance) {
     return;
   }
 
-  utterance.lang = "";
+  utterance.lang = "vi-VN";
 }
 
 function ensureVoicesReady() {
@@ -1113,6 +1113,14 @@ function estimateSpeechTimeout(text) {
   return Math.min(Math.max(words * 520, 2800), 30000);
 }
 
+function handleSpeechPlaybackFailure(message = "Không thể phát giọng nói trên thiết bị này.") {
+  console.warn("[Trạm AI] Phát giọng nói không bắt đầu hoặc bị chặn.");
+  setChatStatus("Không thể phát loa", "ready");
+  if (isLiveMode) {
+    setLiveStatus(message);
+  }
+}
+
 function speakChunk(text, options = {}) {
   return new Promise((resolve) => {
     const { requireLiveMode = true } = options;
@@ -1122,6 +1130,7 @@ function speakChunk(text, options = {}) {
     }
 
     let isSettled = false;
+    let hasStarted = false;
     const finish = () => {
       if (isSettled) return;
       isSettled = true;
@@ -1138,16 +1147,14 @@ function speakChunk(text, options = {}) {
     utterance.pitch = 1;
     utterance.volume = 1;
     utterance.onstart = () => {
+      hasStarted = true;
       speechSynthesisPrimed = true;
       hasPendingSpeechPriming = false;
     };
     utterance.onend = finish;
     utterance.onerror = (event) => {
       console.warn("[Trạm AI] Không đọc được giọng nói Live:", event.error);
-      setChatStatus("Không thể phát loa", "ready");
-      if (isLiveMode) {
-        setLiveStatus("Không thể phát giọng nói trên thiết bị này.");
-      }
+      handleSpeechPlaybackFailure();
       finish();
     };
     liveSpeechUtterance = utterance;
@@ -1155,7 +1162,12 @@ function speakChunk(text, options = {}) {
     window.speechSynthesis.speak(utterance);
     window.speechSynthesis.resume();
     startSpeechKeepAlive();
-    liveSpeechTimer = window.setTimeout(finish, estimateSpeechTimeout(text));
+    liveSpeechTimer = window.setTimeout(() => {
+      if (!hasStarted) {
+        handleSpeechPlaybackFailure("Loa chưa phát được câu chào. Bà con kiểm tra âm lượng hoặc quyền tự động phát tiếng.");
+      }
+      finish();
+    }, estimateSpeechTimeout(text));
   });
 }
 
