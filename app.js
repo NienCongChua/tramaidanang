@@ -1,6 +1,6 @@
 const STORAGE_KEY = "tram_ai_commune_posts";
 const GEO_CACHE_KEY = "tram_ai_geo_cache";
-const DEFAULT_COMMUNE = "X, tỉnh Y";
+const DEFAULT_COMMUNE = "X, tỉnh Z";
 const DEFAULT_COORDS = {
   latitude: 19.3833,
   longitude: 104.1167,
