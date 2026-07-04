@@ -98,6 +98,7 @@ const aiModal = {
   input: document.querySelector("#chatInput"),
   voiceButton: document.querySelector("#chatVoiceButton"),
   liveButton: document.querySelector("#chatLiveButton"),
+  sendButton: document.querySelector("#chatForm .chat-send-btn"),
   statusText: document.querySelector("#chatStatusText"),
   liveStatusText: document.querySelector("#liveStatusText"),
   suggestions: document.querySelector("#chatSuggestions")
@@ -121,6 +122,7 @@ let liveSpeechTimer = null;
 let liveSpeechKeepAliveTimer = null;
 let voicesReadyPromise = null;
 let speechSynthesisPrimed = false;
+let hasPendingSpeechPriming = false;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -717,7 +719,10 @@ function captureVoiceResult(event) {
 }
 
 async function ensureMicrophonePermission() {
-  if (!navigator.mediaDevices?.getUserMedia) return true;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setLiveStatus("Trình duyệt này chưa hỗ trợ quyền micro.");
+    return false;
+  }
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -725,7 +730,13 @@ async function ensureMicrophonePermission() {
     return true;
   } catch (error) {
     console.warn("[Trạm AI] Không thể xin quyền micro:", error);
-    setLiveStatus("Trình duyệt chưa cho phép dùng micro. Bà con kiểm tra quyền micro rồi bật Live lại.");
+    if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+      setLiveStatus("Trình duyệt chưa cho phép dùng micro. Bà con cấp quyền micro rồi thử lại.");
+    } else if (error?.name === "NotFoundError") {
+      setLiveStatus("Thiết bị chưa có micro khả dụng.");
+    } else {
+      setLiveStatus("Không thể bật micro trên thiết bị này.");
+    }
     return false;
   }
 }
@@ -785,12 +796,32 @@ function initVoiceInput() {
 
   speechRecognition.addEventListener("error", (event) => {
     console.warn("[Trạm AI] Lỗi nhận diện giọng nói:", event.error);
-    if (event.error !== "aborted") {
+    if (event.error === "aborted") return;
+
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      setChatStatus("Micro bị chặn", "ready");
       if (voiceMode === "live") {
-        setLiveStatus("Chưa nghe rõ. Bà con thử nói gần micro hơn.");
+        setLiveStatus("Micro đang bị chặn. Bà con kiểm tra quyền micro của trình duyệt.");
       } else {
-        aiModal.input.placeholder = "Không nghe rõ, bà con thử nói lại hoặc nhập bằng tay...";
+        aiModal.input.placeholder = "Micro đang bị chặn, bà con cấp quyền rồi thử lại...";
       }
+      return;
+    }
+
+    if (event.error === "audio-capture") {
+      setChatStatus("Không tìm thấy micro", "ready");
+      if (voiceMode === "live") {
+        setLiveStatus("Thiết bị không tìm thấy micro khả dụng.");
+      } else {
+        aiModal.input.placeholder = "Thiết bị không tìm thấy micro...";
+      }
+      return;
+    }
+
+    if (voiceMode === "live") {
+      setLiveStatus("Chưa nghe rõ. Bà con thử nói gần micro hơn.");
+    } else {
+      aiModal.input.placeholder = "Không nghe rõ, bà con thử nói lại hoặc nhập bằng tay...";
     }
   });
 
@@ -810,9 +841,15 @@ function initVoiceInput() {
   });
 }
 
-function startVoiceInput() {
+async function startVoiceInput() {
   if (!speechRecognition || isListening) return;
   if (isAiResponding) return;
+  const hasMicrophonePermission = await ensureMicrophonePermission();
+  if (!hasMicrophonePermission) {
+    setChatStatus("Micro chưa sẵn sàng", "ready");
+    aiModal.input.placeholder = "Bà con cấp quyền micro rồi thử lại...";
+    return;
+  }
   voiceMode = "dictation";
   shouldRestartLiveRecognition = false;
   voiceBaseText = aiModal.input.value.trim();
@@ -821,6 +858,8 @@ function startVoiceInput() {
     speechRecognition.start();
   } catch (error) {
     console.warn("[Trạm AI] Không thể bắt đầu nhận diện giọng nói:", error);
+    setChatStatus("Không thể mở micro", "ready");
+    aiModal.input.placeholder = "Không thể mở micro, bà con thử lại...";
   }
 }
 
@@ -829,12 +868,12 @@ function stopVoiceInput() {
   speechRecognition.stop();
 }
 
-function toggleVoiceInput() {
+async function toggleVoiceInput() {
   if (isListening) {
     stopVoiceInput();
     return;
   }
-  startVoiceInput();
+  await startVoiceInput();
 }
 
 function startLiveRecognition() {
@@ -973,6 +1012,12 @@ function canUseSpeechSynthesis() {
   return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
 }
 
+function primeSpeechSynthesisFromGesture() {
+  if (!canUseSpeechSynthesis()) return;
+  if (speechSynthesisPrimed || hasPendingSpeechPriming) return;
+  primeSpeechSynthesis();
+}
+
 function stopSpeechKeepAlive() {
   window.clearInterval(liveSpeechKeepAliveTimer);
   liveSpeechKeepAliveTimer = null;
@@ -988,16 +1033,32 @@ function startSpeechKeepAlive() {
 
 function primeSpeechSynthesis() {
   if (speechSynthesisPrimed || !canUseSpeechSynthesis()) return;
+  hasPendingSpeechPriming = true;
   ensureVoicesReady();
 
   try {
-    const utterance = new SpeechSynthesisUtterance(" ");
+    const utterance = new SpeechSynthesisUtterance(".");
     utterance.lang = "vi-VN";
-    utterance.volume = 0.01;
+    utterance.volume = 0;
+    utterance.rate = 1;
+    utterance.onstart = () => {
+      speechSynthesisPrimed = true;
+    };
+    utterance.onend = () => {
+      hasPendingSpeechPriming = false;
+    };
+    utterance.onerror = () => {
+      hasPendingSpeechPriming = false;
+    };
+    window.speechSynthesis.cancel();
     window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
-    speechSynthesisPrimed = true;
+    window.setTimeout(() => {
+      window.speechSynthesis.cancel();
+      hasPendingSpeechPriming = false;
+    }, 180);
   } catch (error) {
+    hasPendingSpeechPriming = false;
     console.warn("[Trạm AI] Không thể khởi động phát giọng nói:", error);
   }
 }
@@ -1052,9 +1113,17 @@ function speakChunk(text, options = {}) {
     utterance.rate = 0.96;
     utterance.pitch = 1;
     utterance.volume = 1;
+    utterance.onstart = () => {
+      speechSynthesisPrimed = true;
+      hasPendingSpeechPriming = false;
+    };
     utterance.onend = finish;
     utterance.onerror = (event) => {
       console.warn("[Trạm AI] Không đọc được giọng nói Live:", event.error);
+      setChatStatus("Không thể phát loa", "ready");
+      if (isLiveMode) {
+        setLiveStatus("Không thể phát giọng nói trên thiết bị này.");
+      }
       finish();
     };
     liveSpeechUtterance = utterance;
@@ -1271,10 +1340,18 @@ aiModal.root.addEventListener("click", (event) => {
 aiModal.form.addEventListener("submit", handleAiSubmit);
 if (aiModal.voiceButton) {
   initVoiceInput();
+  aiModal.voiceButton.addEventListener("pointerdown", primeSpeechSynthesisFromGesture);
   aiModal.voiceButton.addEventListener("click", toggleVoiceInput);
 }
 if (aiModal.liveButton) {
+  aiModal.liveButton.addEventListener("pointerdown", primeSpeechSynthesisFromGesture);
   aiModal.liveButton.addEventListener("click", toggleLiveMode);
+}
+if (aiModal.sendButton) {
+  aiModal.sendButton.addEventListener("pointerdown", primeSpeechSynthesisFromGesture);
+}
+if (aiModal.suggestions) {
+  aiModal.suggestions.addEventListener("pointerdown", primeSpeechSynthesisFromGesture);
 }
 aiModal.suggestions.addEventListener("click", handleSuggestionClick);
 
