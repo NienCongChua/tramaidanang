@@ -647,7 +647,7 @@ async function handleAiSubmit(event) {
   if (!settings.geminiKey) {
     loadingBubble.classList.remove("loading");
     loadingBubble.style.color = "var(--red)";
-    loadingBubble.textContent = "⚠️ Cán bộ xã chưa cấu hình API Key cho Gemini. Vui lòng truy cập trang Admin (Tài khoản: admin / Mật khẩu: xa@2026) -> Cấu hình hệ thống để thiết lập.";
+    loadingBubble.textContent = "⚠️ Cán bộ xã chưa cấu hình API Key cho Gemini. Vui lòng truy cập trang Admin -> Cấu hình hệ thống để thiết lập.";
     return;
   }
 
