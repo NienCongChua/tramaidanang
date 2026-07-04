@@ -2,6 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const geminiHandler = require("./api/gemini");
+const ttsHandler = require("./api/tts");
 
 const ROOT_DIR = __dirname;
 const PORT = Number(process.env.PORT || 3000);
@@ -19,6 +20,11 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "POST" && req.url === "/api/gemini") {
       await geminiHandler(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/tts") {
+      await ttsHandler(req, res);
       return;
     }
 

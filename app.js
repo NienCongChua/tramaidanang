@@ -10,6 +10,8 @@ const DEFAULT_COORDS = {
 const LOW_ACCURACY_METERS = 3000;
 const LIVE_WELCOME_MESSAGE =
   "Xin chào bà con, Trợ lý Live đã sẵn sàng. Bà con cứ nói câu hỏi sau tiếng báo, Trợ lý sẽ nghe và trả lời bằng giọng nói.";
+const SILENT_WAV_DATA_URI =
+  "data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTAAAAAA";
 
 const defaultSettings = {
   smsPhone: "0912345678",
@@ -123,6 +125,10 @@ let liveSpeechKeepAliveTimer = null;
 let voicesReadyPromise = null;
 let speechSynthesisPrimed = false;
 let hasPendingSpeechPriming = false;
+let ttsAudioPlayer = null;
+let ttsAudioUrl = "";
+let isAudioPlaybackPrimed = false;
+let hasPendingAudioPriming = false;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -565,7 +571,7 @@ function handleSMSButtonClick() {
 let aiChatHistory = [];
 
 function openAiChatModal() {
-  primeSpeechSynthesis();
+  primeTtsPlayback();
   aiModal.root.hidden = false;
   document.body.classList.add("modal-open");
   aiModal.input.focus();
@@ -903,6 +909,7 @@ function stopLiveMode() {
   lastLiveSubmittedText = "";
   resetVoiceTranscript();
   liveSpeechUtterance = null;
+  stopAudioPlayback();
   window.speechSynthesis?.cancel();
   if (aiModal.liveButton) {
     aiModal.liveButton.classList.remove("is-live");
@@ -1039,6 +1046,56 @@ function canUseSpeechSynthesis() {
 }
 
 function primeSpeechSynthesisFromGesture() {
+  primeTtsPlayback();
+}
+
+function ensureTtsAudioPlayer() {
+  if (ttsAudioPlayer) return ttsAudioPlayer;
+  ttsAudioPlayer = new Audio();
+  ttsAudioPlayer.preload = "auto";
+  ttsAudioPlayer.playsInline = true;
+  ttsAudioPlayer.setAttribute("playsinline", "");
+  return ttsAudioPlayer;
+}
+
+function clearTtsAudioSource() {
+  if (!ttsAudioPlayer) return;
+  ttsAudioPlayer.removeAttribute("src");
+  ttsAudioPlayer.load();
+  if (ttsAudioUrl) {
+    URL.revokeObjectURL(ttsAudioUrl);
+    ttsAudioUrl = "";
+  }
+}
+
+function stopAudioPlayback() {
+  if (!ttsAudioPlayer) return;
+  ttsAudioPlayer.pause();
+  ttsAudioPlayer.currentTime = 0;
+  clearTtsAudioSource();
+}
+
+function primeAudioPlaybackFromGesture() {
+  if (isAudioPlaybackPrimed || hasPendingAudioPriming) return;
+  const player = ensureTtsAudioPlayer();
+  hasPendingAudioPriming = true;
+  player.muted = true;
+  player.src = SILENT_WAV_DATA_URI;
+  const primingPromise = player.play();
+  Promise.resolve(primingPromise)
+    .catch(() => {})
+    .finally(() => {
+      player.pause();
+      player.currentTime = 0;
+      player.muted = false;
+      clearTtsAudioSource();
+      isAudioPlaybackPrimed = true;
+      hasPendingAudioPriming = false;
+    });
+}
+
+function primeTtsPlayback() {
+  primeAudioPlaybackFromGesture();
   if (!canUseSpeechSynthesis()) return;
   if (speechSynthesisPrimed || hasPendingSpeechPriming) return;
   primeSpeechSynthesis();
@@ -1116,9 +1173,71 @@ function estimateSpeechTimeout(text) {
 function handleSpeechPlaybackFailure(message = "Không thể phát giọng nói trên thiết bị này.") {
   console.warn("[Trạm AI] Phát giọng nói không bắt đầu hoặc bị chặn.");
   setChatStatus("Không thể phát loa", "ready");
-  if (isLiveMode) {
+  if (aiModal.liveStatusText && (isLiveMode || !aiModal.root.hidden)) {
     setLiveStatus(message);
   }
+}
+
+async function requestTtsAudioBlob(text) {
+  const response = await fetch("/api/tts", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ text })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const message = errorData.error || `HTTP error ${response.status}`;
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
+function playTtsAudioBlob(audioBlob, options = {}) {
+  return new Promise((resolve, reject) => {
+    const { requireLiveMode = true } = options;
+    if (requireLiveMode && !isLiveMode) {
+      resolve();
+      return;
+    }
+
+    const player = ensureTtsAudioPlayer();
+    stopAudioPlayback();
+
+    let isSettled = false;
+    const settle = (error = null) => {
+      if (isSettled) return;
+      isSettled = true;
+      player.onended = null;
+      player.onerror = null;
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+
+    ttsAudioUrl = URL.createObjectURL(audioBlob);
+    player.src = ttsAudioUrl;
+    player.muted = false;
+    player.onended = () => {
+      clearTtsAudioSource();
+      settle();
+    };
+    player.onerror = () => {
+      clearTtsAudioSource();
+      settle(new Error("Audio element không phát được file TTS."));
+    };
+
+    const playPromise = player.play();
+    Promise.resolve(playPromise).catch((error) => {
+      clearTtsAudioSource();
+      settle(error instanceof Error ? error : new Error("Trình duyệt chặn phát audio."));
+    });
+  });
 }
 
 function speakChunk(text, options = {}) {
@@ -1174,14 +1293,28 @@ function speakChunk(text, options = {}) {
 async function speakText(text, statusMessage, liveMessage, options = {}) {
   const { requireLiveMode = true } = options;
   if (requireLiveMode && !isLiveMode) return;
-  if (!canUseSpeechSynthesis()) {
-    setChatStatus("Trình duyệt này chưa hỗ trợ phát giọng nói", "ready");
-    if (liveMessage) setLiveStatus("Trình duyệt này chưa hỗ trợ phát giọng nói.");
-    return;
-  }
 
   const cleanText = speechText(text);
   if (!cleanText) return;
+
+  setChatStatus(statusMessage, "speaking");
+  if (liveMessage) setLiveStatus(liveMessage);
+
+  await new Promise((resolve) => window.setTimeout(resolve, 160));
+
+  try {
+    const audioBlob = await requestTtsAudioBlob(cleanText);
+    if (requireLiveMode && !isLiveMode) return;
+    await playTtsAudioBlob(audioBlob, { requireLiveMode });
+    return;
+  } catch (error) {
+    console.warn("[Trạm AI] Server TTS không phát được, chuyển sang Web Speech:", error);
+  }
+
+  if (!canUseSpeechSynthesis()) {
+    handleSpeechPlaybackFailure(liveMessage || "Thiết bị chưa phát được giọng nói của Trợ lý.");
+    return;
+  }
 
   await ensureVoicesReady();
   if (requireLiveMode && !isLiveMode) return;
@@ -1191,10 +1324,6 @@ async function speakText(text, statusMessage, liveMessage, options = {}) {
   stopSpeechKeepAlive();
   liveSpeechTimer = null;
   liveSpeechUtterance = null;
-  setChatStatus(statusMessage, "speaking");
-  if (liveMessage) setLiveStatus(liveMessage);
-
-  await new Promise((resolve) => window.setTimeout(resolve, 160));
 
   for (const chunk of splitSpeechChunks(cleanText)) {
     if (requireLiveMode && !isLiveMode) break;
@@ -1288,7 +1417,7 @@ Nguyên tắc trả lời:
 
 async function handleAiSubmit(event, options = {}) {
   if (event) event.preventDefault();
-  primeSpeechSynthesis();
+  primeTtsPlayback();
   if (isAiResponding) return;
   isAiResponding = true;
   shouldRestartLiveRecognition = false;
