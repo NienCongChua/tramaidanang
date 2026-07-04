@@ -991,6 +991,32 @@ function getVietnameseVoice() {
   );
 }
 
+function getDefaultSpeechVoice() {
+  if (!canUseSpeechSynthesis()) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((voice) => voice.default) ||
+    voices.find((voice) => voice.localService) ||
+    voices[0] ||
+    null
+  );
+}
+
+function resolveSpeechVoice() {
+  return getVietnameseVoice() || getDefaultSpeechVoice();
+}
+
+function applySpeechVoice(utterance) {
+  const preferredVoice = resolveSpeechVoice();
+  if (preferredVoice) {
+    utterance.voice = preferredVoice;
+    utterance.lang = preferredVoice.lang || "vi-VN";
+    return;
+  }
+
+  utterance.lang = "";
+}
+
 function ensureVoicesReady() {
   if (!canUseSpeechSynthesis()) return Promise.resolve();
   if (window.speechSynthesis.getVoices().length) return Promise.resolve();
@@ -1038,7 +1064,7 @@ function primeSpeechSynthesis() {
 
   try {
     const utterance = new SpeechSynthesisUtterance(".");
-    utterance.lang = "vi-VN";
+    applySpeechVoice(utterance);
     utterance.volume = 0;
     utterance.rate = 1;
     utterance.onstart = () => {
@@ -1107,9 +1133,7 @@ function speakChunk(text, options = {}) {
     };
 
     const utterance = new SpeechSynthesisUtterance(text);
-    const vietnameseVoice = getVietnameseVoice();
-    if (vietnameseVoice) utterance.voice = vietnameseVoice;
-    utterance.lang = "vi-VN";
+    applySpeechVoice(utterance);
     utterance.rate = 0.96;
     utterance.pitch = 1;
     utterance.volume = 1;
