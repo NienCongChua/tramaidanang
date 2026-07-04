@@ -8,6 +8,8 @@ const DEFAULT_COORDS = {
   label: "Xã demo Kỳ Sơn, Nghệ An"
 };
 const LOW_ACCURACY_METERS = 3000;
+const LIVE_WELCOME_MESSAGE =
+  "Xin chào bà con, Trợ lý Live đã sẵn sàng. Bà con cứ nói câu hỏi sau tiếng báo, Trợ lý sẽ nghe và trả lời bằng giọng nói.";
 
 const defaultSettings = {
   smsPhone: "0912345678",
@@ -789,7 +791,7 @@ function stopLiveMode() {
   stopVoiceInput();
 }
 
-function startLiveMode() {
+async function startLiveMode() {
   if (!speechRecognition) {
     setLiveStatus("Trình duyệt này chưa hỗ trợ nhận diện giọng nói Live.");
     return;
@@ -801,8 +803,12 @@ function startLiveMode() {
     aiModal.liveButton.setAttribute("aria-pressed", "true");
     aiModal.liveButton.querySelector("span:last-child").textContent = "Tắt trò chuyện Live";
   }
-  setChatStatus("Live đang bật", "listening");
-  setLiveStatus("Live đã bật. Bà con cứ nói câu hỏi vào micro.");
+  setChatStatus("Live đang khởi động", "speaking");
+  setLiveStatus("Live đã bật. Trợ lý sẽ chào bà con trước khi mở micro.");
+  await speakLiveWelcome();
+  if (!isLiveMode) return;
+  setChatStatus("Đang nghe bà con nói", "listening");
+  setLiveStatus("Micro đã mở. Bà con cứ nói câu hỏi, Trợ lý sẽ tự gửi khi bà con nói xong.");
   startLiveRecognition();
 }
 
@@ -825,7 +831,18 @@ function scheduleLiveSubmit() {
   }, 900);
 }
 
-function speakAssistantResponse(text) {
+function speechText(value) {
+  return String(value || "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function speakLiveText(text, statusMessage, liveMessage) {
   return new Promise((resolve) => {
     if (!isLiveMode || !("speechSynthesis" in window)) {
       resolve();
@@ -833,18 +850,30 @@ function speakAssistantResponse(text) {
     }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(speechText(text));
     utterance.lang = "vi-VN";
     utterance.rate = 0.96;
     utterance.pitch = 1;
     utterance.onstart = () => {
-      setChatStatus("Trợ lý đang trả lời", "speaking");
-      setLiveStatus("Trợ lý đang đọc câu trả lời...");
+      setChatStatus(statusMessage, "speaking");
+      setLiveStatus(liveMessage);
     };
     utterance.onend = resolve;
     utterance.onerror = resolve;
     window.speechSynthesis.speak(utterance);
   });
+}
+
+function speakAssistantResponse(text) {
+  return speakLiveText(text, "Trợ lý đang trả lời", "Trợ lý đang đọc câu trả lời...");
+}
+
+function speakLiveWelcome() {
+  return speakLiveText(
+    LIVE_WELCOME_MESSAGE,
+    "Trợ lý đang chào bà con",
+    "Trợ lý đang đọc câu chào, sau đó micro sẽ tự mở."
+  );
 }
 
 async function callGemini(userInput) {
