@@ -600,10 +600,61 @@ function scrollToBottom() {
   aiModal.messages.scrollTop = aiModal.messages.scrollHeight;
 }
 
-function appendChatBubble(text, sender) {
+function formatAssistantMessage(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const html = [];
+  let listType = null;
+
+  const closeList = () => {
+    if (!listType) return;
+    html.push(`</${listType}>`);
+    listType = null;
+  };
+
+  const inlineFormat = (value) =>
+    escapeHtml(value)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/__(.+?)__/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      closeList();
+      return;
+    }
+
+    const unordered = trimmed.match(/^(?:[-*])\s+(.+)$/);
+    const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+
+    if (unordered || ordered) {
+      const nextListType = unordered ? "ul" : "ol";
+      if (listType !== nextListType) {
+        closeList();
+        html.push(`<${nextListType}>`);
+        listType = nextListType;
+      }
+      html.push(`<li>${inlineFormat((unordered || ordered)[1])}</li>`);
+      return;
+    }
+
+    closeList();
+    html.push(`<p>${inlineFormat(trimmed)}</p>`);
+  });
+
+  closeList();
+  return html.join("");
+}
+
+function appendChatBubble(text, sender, options = {}) {
   const bubble = document.createElement("div");
   bubble.className = `chat-bubble ${sender}`;
-  bubble.textContent = text;
+  if (options.format === "assistant") {
+    bubble.innerHTML = formatAssistantMessage(text);
+  } else {
+    bubble.textContent = text;
+  }
   aiModal.messages.appendChild(bubble);
   scrollToBottom();
   return bubble;
@@ -702,7 +753,7 @@ async function handleAiSubmit(event) {
     console.log("[Trạm AI] Nhận phản hồi thành công:", aiResponse);
     
     loadingBubble.remove();
-    appendChatBubble(aiResponse, "assistant");
+    appendChatBubble(aiResponse, "assistant", { format: "assistant" });
     
     aiChatHistory.push({ role: "user", parts: [{ text: userInput }] });
     aiChatHistory.push({ role: "model", parts: [{ text: aiResponse }] });

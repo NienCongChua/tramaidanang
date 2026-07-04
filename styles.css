@@ -1313,6 +1313,27 @@ select:focus {
   color: #102033;
   border-top-left-radius: 3px;
   border: 1px solid rgba(16, 32, 51, 0.08);
+  white-space: normal;
+}
+
+.chat-bubble.assistant p {
+  margin: 0 0 8px;
+}
+
+.chat-bubble.assistant p:last-child,
+.chat-bubble.assistant ul:last-child,
+.chat-bubble.assistant ol:last-child {
+  margin-bottom: 0;
+}
+
+.chat-bubble.assistant ul,
+.chat-bubble.assistant ol {
+  margin: 6px 0 8px;
+  padding-left: 20px;
+}
+
+.chat-bubble.assistant li {
+  margin: 5px 0;
 }
 
 .chat-bubble.user {
@@ -1445,4 +1466,3 @@ select:focus {
     max-height: 100dvh;
   }
 }
-
