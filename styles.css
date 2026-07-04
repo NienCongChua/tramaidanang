@@ -1289,10 +1289,87 @@ select:focus {
   box-shadow: 0 0 8px #40c057;
 }
 
+.status-dot.listening {
+  background-color: #f2b632;
+  box-shadow: 0 0 8px #f2b632;
+}
+
+.status-dot.thinking {
+  background-color: #74c0fc;
+  box-shadow: 0 0 8px #74c0fc;
+}
+
+.status-dot.speaking {
+  background-color: #ff8787;
+  box-shadow: 0 0 8px #ff8787;
+}
+
 @keyframes pulse-dot {
   0% { transform: scale(0.85); opacity: 0.6; }
-  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px #40c057; }
+  50% { transform: scale(1.2); opacity: 1; }
   100% { transform: scale(0.85); opacity: 0.6; }
+}
+
+.live-chat-panel {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(16, 32, 51, 0.08);
+  background: #fff;
+}
+
+.live-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  color: #fff;
+  background: #0f2c46;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(15, 44, 70, 0.18);
+}
+
+.live-toggle-btn:hover {
+  background: #0a4f3b;
+}
+
+.live-toggle-btn.is-live {
+  background: #b3261e;
+  animation: live-button-pulse 1.1s ease-in-out infinite alternate;
+}
+
+.live-toggle-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.live-toggle-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.live-chat-panel p {
+  margin: 0;
+  color: #526173;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+@keyframes live-button-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgba(179, 38, 30, 0.25);
+  }
+
+  to {
+    box-shadow: 0 0 0 7px rgba(179, 38, 30, 0);
+  }
 }
 
 .chat-messages {
@@ -1517,5 +1594,25 @@ select:focus {
     border-radius: 0;
     max-height: 100vh;
     max-height: 100dvh;
+  }
+
+  .live-chat-panel {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding-inline: 14px;
+  }
+
+  .live-toggle-btn {
+    width: 100%;
+  }
+
+  .chat-input-area {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .chat-input-area input {
+    min-width: 0;
+    padding-inline: 13px;
   }
 }

@@ -95,6 +95,9 @@ const aiModal = {
   form: document.querySelector("#chatForm"),
   input: document.querySelector("#chatInput"),
   voiceButton: document.querySelector("#chatVoiceButton"),
+  liveButton: document.querySelector("#chatLiveButton"),
+  statusText: document.querySelector("#chatStatusText"),
+  liveStatusText: document.querySelector("#liveStatusText"),
   suggestions: document.querySelector("#chatSuggestions")
 };
 
@@ -102,6 +105,12 @@ let lastCoords = null;
 let speechRecognition = null;
 let isListening = false;
 let voiceBaseText = "";
+let isLiveMode = false;
+let voiceMode = "dictation";
+let liveFinalText = "";
+let liveSubmitTimer = null;
+let isAiResponding = false;
+let shouldRestartLiveRecognition = false;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -551,6 +560,7 @@ function openAiChatModal() {
 }
 
 function closeAiChatModal() {
+  stopLiveMode();
   stopVoiceInput();
   aiModal.root.hidden = true;
   document.body.classList.remove("modal-open");
@@ -620,6 +630,18 @@ function appendChatBubble(text, sender, options = {}) {
   return bubble;
 }
 
+function setChatStatus(message, state = "ready") {
+  if (aiModal.statusText) {
+    aiModal.statusText.innerHTML = `<span class="status-dot ${state}"></span> ${escapeHtml(message)}`;
+  }
+}
+
+function setLiveStatus(message) {
+  if (aiModal.liveStatusText) {
+    aiModal.liveStatusText.textContent = message;
+  }
+}
+
 function initVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!aiModal.voiceButton || !SpeechRecognition) {
@@ -628,21 +650,32 @@ function initVoiceInput() {
       aiModal.voiceButton.title = "Trình duyệt này chưa hỗ trợ nhập bằng giọng nói";
       aiModal.voiceButton.setAttribute("aria-label", "Trình duyệt này chưa hỗ trợ nhập bằng giọng nói");
     }
+    if (aiModal.liveButton) {
+      aiModal.liveButton.disabled = true;
+      aiModal.liveButton.title = "Trình duyệt này chưa hỗ trợ trò chuyện Live";
+    }
+    setLiveStatus("Trình duyệt này chưa hỗ trợ nhận diện giọng nói Live.");
     return;
   }
 
   speechRecognition = new SpeechRecognition();
   speechRecognition.lang = "vi-VN";
-  speechRecognition.continuous = false;
+  speechRecognition.continuous = true;
   speechRecognition.interimResults = true;
   speechRecognition.maxAlternatives = 3;
 
   speechRecognition.addEventListener("start", () => {
     isListening = true;
     aiModal.voiceButton.classList.add("is-listening");
-    aiModal.voiceButton.title = "Đang nghe, bấm để dừng";
-    aiModal.voiceButton.setAttribute("aria-label", "Đang nghe, bấm để dừng");
-    aiModal.input.placeholder = "Đang nghe bà con nói...";
+    if (voiceMode === "live") {
+      setChatStatus("Đang nghe bà con nói", "listening");
+      setLiveStatus("Đang nghe... Bà con nói xong, trợ lý sẽ tự gửi câu hỏi.");
+      aiModal.input.placeholder = "Live đang nghe...";
+    } else {
+      aiModal.voiceButton.title = "Đang nghe, bấm để dừng";
+      aiModal.voiceButton.setAttribute("aria-label", "Đang nghe, bấm để dừng");
+      aiModal.input.placeholder = "Đang nghe bà con nói...";
+    }
   });
 
   speechRecognition.addEventListener("result", (event) => {
@@ -662,13 +695,26 @@ function initVoiceInput() {
     const recognizedText = `${finalText}${interimText}`.trim();
     if (!recognizedText) return;
 
+    if (voiceMode === "live") {
+      if (finalText.trim()) {
+        liveFinalText = [liveFinalText, finalText.trim()].filter(Boolean).join(" ").trim();
+      }
+      aiModal.input.value = [liveFinalText, interimText.trim()].filter(Boolean).join(" ").trim();
+      scheduleLiveSubmit();
+      return;
+    }
+
     aiModal.input.value = [voiceBaseText, recognizedText].filter(Boolean).join(" ").trim();
   });
 
   speechRecognition.addEventListener("error", (event) => {
     console.warn("[Trạm AI] Lỗi nhận diện giọng nói:", event.error);
     if (event.error !== "aborted") {
-      aiModal.input.placeholder = "Không nghe rõ, bà con thử nói lại hoặc nhập bằng tay...";
+      if (voiceMode === "live") {
+        setLiveStatus("Chưa nghe rõ. Bà con thử nói gần micro hơn.");
+      } else {
+        aiModal.input.placeholder = "Không nghe rõ, bà con thử nói lại hoặc nhập bằng tay...";
+      }
     }
   });
 
@@ -678,12 +724,20 @@ function initVoiceInput() {
     aiModal.voiceButton.title = "Nhập bằng giọng nói";
     aiModal.voiceButton.setAttribute("aria-label", "Nhập bằng giọng nói");
     aiModal.input.placeholder = "Nhập câu hỏi của bà con tại đây...";
-    aiModal.input.focus();
+    if (voiceMode === "live" && isLiveMode && shouldRestartLiveRecognition && !isAiResponding) {
+      window.setTimeout(startLiveRecognition, 450);
+      return;
+    }
+    if (voiceMode !== "live") {
+      aiModal.input.focus();
+    }
   });
 }
 
 function startVoiceInput() {
   if (!speechRecognition || isListening) return;
+  voiceMode = "dictation";
+  shouldRestartLiveRecognition = false;
   voiceBaseText = aiModal.input.value.trim();
   try {
     speechRecognition.start();
@@ -703,6 +757,94 @@ function toggleVoiceInput() {
     return;
   }
   startVoiceInput();
+}
+
+function startLiveRecognition() {
+  if (!speechRecognition || !isLiveMode || isListening || isAiResponding) return;
+  voiceMode = "live";
+  shouldRestartLiveRecognition = true;
+  liveFinalText = "";
+  aiModal.input.value = "";
+  try {
+    speechRecognition.start();
+  } catch (error) {
+    console.warn("[Trạm AI] Không thể bắt đầu Live:", error);
+  }
+}
+
+function stopLiveMode() {
+  isLiveMode = false;
+  shouldRestartLiveRecognition = false;
+  window.clearTimeout(liveSubmitTimer);
+  liveSubmitTimer = null;
+  liveFinalText = "";
+  window.speechSynthesis?.cancel();
+  if (aiModal.liveButton) {
+    aiModal.liveButton.classList.remove("is-live");
+    aiModal.liveButton.setAttribute("aria-pressed", "false");
+    aiModal.liveButton.querySelector("span:last-child").textContent = "Bật trò chuyện Live";
+  }
+  setChatStatus("Sẵn sàng hỗ trợ bà con");
+  setLiveStatus("Bấm Live để nói trực tiếp, trợ lý sẽ tự nghe và đọc câu trả lời.");
+  stopVoiceInput();
+}
+
+function startLiveMode() {
+  if (!speechRecognition) {
+    setLiveStatus("Trình duyệt này chưa hỗ trợ nhận diện giọng nói Live.");
+    return;
+  }
+
+  isLiveMode = true;
+  if (aiModal.liveButton) {
+    aiModal.liveButton.classList.add("is-live");
+    aiModal.liveButton.setAttribute("aria-pressed", "true");
+    aiModal.liveButton.querySelector("span:last-child").textContent = "Tắt trò chuyện Live";
+  }
+  setChatStatus("Live đang bật", "listening");
+  setLiveStatus("Live đã bật. Bà con cứ nói câu hỏi vào micro.");
+  startLiveRecognition();
+}
+
+function toggleLiveMode() {
+  if (isLiveMode) {
+    stopLiveMode();
+    return;
+  }
+  startLiveMode();
+}
+
+function scheduleLiveSubmit() {
+  if (!isLiveMode || !liveFinalText) return;
+  window.clearTimeout(liveSubmitTimer);
+  liveSubmitTimer = window.setTimeout(() => {
+    if (!isLiveMode || isAiResponding || !liveFinalText.trim()) return;
+    aiModal.input.value = liveFinalText.trim();
+    liveFinalText = "";
+    handleAiSubmit(null, { fromLive: true });
+  }, 900);
+}
+
+function speakAssistantResponse(text) {
+  return new Promise((resolve) => {
+    if (!isLiveMode || !("speechSynthesis" in window)) {
+      resolve();
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "vi-VN";
+    utterance.rate = 0.96;
+    utterance.pitch = 1;
+    utterance.onstart = () => {
+      setChatStatus("Trợ lý đang trả lời", "speaking");
+      setLiveStatus("Trợ lý đang đọc câu trả lời...");
+    };
+    utterance.onend = resolve;
+    utterance.onerror = resolve;
+    window.speechSynthesis.speak(utterance);
+  });
 }
 
 async function callGemini(userInput) {
@@ -772,14 +914,28 @@ Nguyên tắc trả lời:
   return text;
 }
 
-async function handleAiSubmit(event) {
+async function handleAiSubmit(event, options = {}) {
   if (event) event.preventDefault();
+  if (isAiResponding) return;
+  isAiResponding = true;
+  shouldRestartLiveRecognition = false;
   stopVoiceInput();
   const userInput = aiModal.input.value.trim();
-  if (!userInput) return;
+  if (!userInput) {
+    isAiResponding = false;
+    if (isLiveMode) {
+      shouldRestartLiveRecognition = true;
+      startLiveRecognition();
+    }
+    return;
+  }
   
   aiModal.input.value = "";
   appendChatBubble(userInput, "user");
+  if (options.fromLive) {
+    setChatStatus("Đang gửi câu hỏi", "thinking");
+    setLiveStatus("Đã nghe câu hỏi. Trợ lý đang chuẩn bị trả lời...");
+  }
   
   const loadingBubble = appendChatBubble("Trợ lý đang suy nghĩ...", "assistant loading");
   
@@ -792,11 +948,23 @@ async function handleAiSubmit(event) {
     
     aiChatHistory.push({ role: "user", parts: [{ text: userInput }] });
     aiChatHistory.push({ role: "model", parts: [{ text: aiResponse }] });
+    await speakAssistantResponse(aiResponse);
   } catch (error) {
     console.error("[Trạm AI] Lỗi phản hồi API:", error);
     loadingBubble.classList.remove("loading");
     loadingBubble.style.color = "var(--red)";
     loadingBubble.textContent = "Đã xảy ra 1 số lỗi không mong muốn, vui lòng báo cáo lại cho cán bộ xã!";
+    setLiveStatus("Trợ lý chưa trả lời được. Bà con có thể nói lại hoặc nhập bằng tay.");
+  } finally {
+    isAiResponding = false;
+    if (isLiveMode) {
+      setChatStatus("Đang nghe bà con nói", "listening");
+      setLiveStatus("Live đang nghe tiếp. Bà con có thể hỏi câu khác.");
+      shouldRestartLiveRecognition = true;
+      startLiveRecognition();
+    } else {
+      setChatStatus("Sẵn sàng hỗ trợ bà con");
+    }
   }
 }
 
@@ -836,6 +1004,9 @@ aiModal.form.addEventListener("submit", handleAiSubmit);
 if (aiModal.voiceButton) {
   initVoiceInput();
   aiModal.voiceButton.addEventListener("click", toggleVoiceInput);
+}
+if (aiModal.liveButton) {
+  aiModal.liveButton.addEventListener("click", toggleLiveMode);
 }
 aiModal.suggestions.addEventListener("click", handleSuggestionClick);
 

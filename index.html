@@ -132,11 +132,19 @@
             <span class="chat-avatar">🤖</span>
             <div>
               <h2 id="chatTitle">Trợ lý Trạm AI Đa Năng</h2>
-              <p class="status-indicator"><span class="status-dot"></span> Sẵn sàng hỗ trợ bà con</p>
+              <p class="status-indicator" id="chatStatusText"><span class="status-dot"></span> Sẵn sàng hỗ trợ bà con</p>
             </div>
           </div>
           <button class="modal-close" type="button" id="chatCloseButton" aria-label="Đóng chat">×</button>
         </header>
+
+        <div class="live-chat-panel" id="liveChatPanel">
+          <button class="live-toggle-btn" type="button" id="chatLiveButton" aria-pressed="false">
+            <span class="live-toggle-icon" aria-hidden="true">◉</span>
+            <span>Bật trò chuyện Live</span>
+          </button>
+          <p id="liveStatusText">Bấm Live để nói trực tiếp, trợ lý sẽ tự nghe và đọc câu trả lời.</p>
+        </div>
 
         <div class="chat-messages" id="chatMessages">
           <div class="chat-bubble assistant">Xin chào bà con! Tôi là trợ lý của Trạm AI đa năng. Tôi có thể giúp bà con xem thời tiết hiện tại, đọc các thông báo chính thức từ xã, giải đáp về nông nghiệp, chăm sóc sức khỏe hoặc hướng dẫn an toàn khi gặp bão lũ, sạt lở đất.
