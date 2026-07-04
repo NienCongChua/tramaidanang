@@ -566,8 +566,10 @@ function appendChatBubble(text, sender) {
 }
 
 async function callGemini(userInput, apiKey) {
-  const model = "gemini-2.5-flash";
+  const model = "gemini-1.5-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  
+  console.log(`[Trạm AI] Đang gửi câu hỏi đến Gemini (${model})...`);
   
   const posts = loadPosts();
   const activeNotices = posts
@@ -653,6 +655,7 @@ async function handleAiSubmit(event) {
 
   try {
     const aiResponse = await callGemini(userInput, settings.geminiKey);
+    console.log("[Trạm AI] Nhận phản hồi thành công:", aiResponse);
     
     loadingBubble.remove();
     appendChatBubble(aiResponse, "assistant");
@@ -660,6 +663,7 @@ async function handleAiSubmit(event) {
     aiChatHistory.push({ role: "user", parts: [{ text: userInput }] });
     aiChatHistory.push({ role: "model", parts: [{ text: aiResponse }] });
   } catch (error) {
+    console.error("[Trạm AI] Lỗi phản hồi API:", error);
     loadingBubble.classList.remove("loading");
     loadingBubble.style.color = "var(--red)";
     loadingBubble.textContent = `❌ Lỗi khi gửi câu hỏi: ${error.message}. Vui lòng kiểm tra lại cấu hình API Key trong trang Admin.`;
