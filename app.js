@@ -16,6 +16,16 @@ const defaultSettings = {
   geminiKey: ""
 };
 
+const GEMINI_KEY_STORAGE_KEYS = [
+  SETTINGS_KEY,
+  "GEMINI_API_KEY",
+  "gemini_api_key",
+  "geminiKey",
+  "tram_ai_gemini_key"
+];
+
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+
 const defaultPosts = [
   {
     id: "seed-main",
@@ -515,11 +525,45 @@ async function reloadHomeData() {
 }
 
 function loadSettings() {
+  const settings = { ...defaultSettings };
+
   try {
     const saved = localStorage.getItem(SETTINGS_KEY);
-    if (saved) return { ...defaultSettings, ...JSON.parse(saved) };
+    if (saved) Object.assign(settings, JSON.parse(saved));
   } catch {}
-  return defaultSettings;
+
+  settings.geminiKey = getGeminiApiKey(settings.geminiKey);
+  return settings;
+}
+
+function getGeminiApiKey(configuredKey = "") {
+  const directKey = String(configuredKey || "").trim();
+  if (directKey) return directKey;
+
+  const runtimeKey = String(window.TRAM_AI_GEMINI_API_KEY || window.GEMINI_API_KEY || "").trim();
+  if (runtimeKey) return runtimeKey;
+
+  const metaKey = document.querySelector('meta[name="gemini-api-key"]')?.content?.trim();
+  if (metaKey) return metaKey;
+
+  try {
+    for (const key of GEMINI_KEY_STORAGE_KEYS) {
+      const value = localStorage.getItem(key);
+      if (!value) continue;
+
+      if (key === SETTINGS_KEY) {
+        const parsed = JSON.parse(value);
+        const savedKey = String(parsed?.geminiKey || "").trim();
+        if (savedKey) return savedKey;
+        continue;
+      }
+
+      const savedKey = String(value).trim();
+      if (savedKey) return savedKey;
+    }
+  } catch {}
+
+  return "";
 }
 
 function handleSMSButtonClick() {
@@ -566,7 +610,7 @@ function appendChatBubble(text, sender) {
 }
 
 async function callGemini(userInput, apiKey) {
-  const model = "gemini-1.5-flash";
+  const model = String(window.TRAM_AI_GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim();
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   
   console.log(`[Trạm AI] Đang gửi câu hỏi đến Gemini (${model})...`);
@@ -649,7 +693,7 @@ async function handleAiSubmit(event) {
   if (!settings.geminiKey) {
     loadingBubble.classList.remove("loading");
     loadingBubble.style.color = "var(--red)";
-    loadingBubble.textContent = "⚠️ Cán bộ xã chưa cấu hình API Key cho Gemini. Vui lòng truy cập trang Admin -> Cấu hình hệ thống để thiết lập.";
+    loadingBubble.textContent = "Đã xảy ra 1 số lỗi không mong muốn, vui lòng báo cáo lại cho cán bộ xã!";
     return;
   }
 

@@ -130,14 +130,17 @@ function handleSettingsSubmit(event) {
     return;
   }
 
+  const previousSettings = loadSettings();
+  const nextGeminiKey = geminiKeyInput.value.trim();
   const settings = {
     smsPhone: smsPhoneInput.value.trim(),
     smsTemplate: smsTemplateInput.value.trim(),
     smsAttachLocation: smsAttachLocationInput.checked,
-    geminiKey: geminiKeyInput.value.trim()
+    geminiKey: nextGeminiKey || previousSettings.geminiKey || ""
   };
 
   saveSettings(settings);
+  geminiKeyInput.value = settings.geminiKey;
 
   settingsMessage.style.color = "var(--green)";
   settingsMessage.textContent = "✓ Đã lưu cấu hình thành công!";
