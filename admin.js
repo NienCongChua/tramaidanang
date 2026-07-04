@@ -7,8 +7,7 @@ const ADMIN_PASSWORD = "xa@2026";
 const defaultSettings = {
   smsPhone: "0912345678",
   smsTemplate: "Tôi đang ở vị trí này và cần hỗ trợ khẩn cấp:",
-  smsAttachLocation: true,
-  geminiKey: ""
+  smsAttachLocation: true
 };
 
 const defaultPosts = [
@@ -74,7 +73,6 @@ const settingsForm = document.querySelector("#settingsForm");
 const smsPhoneInput = document.querySelector("#smsPhoneInput");
 const smsTemplateInput = document.querySelector("#smsTemplateInput");
 const smsAttachLocationInput = document.querySelector("#smsAttachLocationInput");
-const geminiKeyInput = document.querySelector("#geminiKeyInput");
 const settingsMessage = document.querySelector("#settingsMessage");
 const resetSettingsButton = document.querySelector("#resetSettingsButton");
 
@@ -120,7 +118,6 @@ function renderSettings() {
   smsPhoneInput.value = settings.smsPhone;
   smsTemplateInput.value = settings.smsTemplate;
   smsAttachLocationInput.checked = Boolean(settings.smsAttachLocation);
-  geminiKeyInput.value = settings.geminiKey || "";
 }
 
 function handleSettingsSubmit(event) {
@@ -130,17 +127,13 @@ function handleSettingsSubmit(event) {
     return;
   }
 
-  const previousSettings = loadSettings();
-  const nextGeminiKey = geminiKeyInput.value.trim();
   const settings = {
     smsPhone: smsPhoneInput.value.trim(),
     smsTemplate: smsTemplateInput.value.trim(),
-    smsAttachLocation: smsAttachLocationInput.checked,
-    geminiKey: nextGeminiKey || previousSettings.geminiKey || ""
+    smsAttachLocation: smsAttachLocationInput.checked
   };
 
   saveSettings(settings);
-  geminiKeyInput.value = settings.geminiKey;
 
   settingsMessage.style.color = "var(--green)";
   settingsMessage.textContent = "✓ Đã lưu cấu hình thành công!";

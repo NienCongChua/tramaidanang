@@ -838,6 +838,16 @@ select:focus {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
 }
 
+.settings-hint {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #f7fafc;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .admin-list {
   display: grid;
   gap: 12px;
@@ -1422,18 +1432,46 @@ select:focus {
   box-shadow: 0 0 0 4px rgba(8, 115, 70, 0.15);
 }
 
+.chat-voice-btn,
 .chat-send-btn {
   width: 46px;
   height: 46px;
   border-radius: 50%;
-  background: #087346;
-  color: #fff;
   border: 0;
   display: grid;
   place-items: center;
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
+}
+
+.chat-voice-btn {
+  background: #edf4f0;
+  color: #087346;
+  border: 1px solid rgba(8, 115, 70, 0.18);
+}
+
+.chat-voice-btn:hover {
+  background: #dfeee7;
+  transform: scale(1.05);
+}
+
+.chat-voice-btn.is-listening {
+  background: #b3261e;
+  color: #fff;
+  border-color: #b3261e;
+  animation: voice-pulse 1s infinite alternate;
+}
+
+.chat-voice-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.chat-send-btn {
+  background: #087346;
+  color: #fff;
   box-shadow: 0 3px 6px rgba(8, 115, 70, 0.3);
 }
 
@@ -1449,6 +1487,19 @@ select:focus {
 
 .chat-send-btn .send-icon {
   font-size: 1.25rem;
+}
+
+.chat-voice-btn .voice-icon {
+  font-size: 1.1rem;
+}
+
+@keyframes voice-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgba(179, 38, 30, 0.28);
+  }
+  to {
+    box-shadow: 0 0 0 8px rgba(179, 38, 30, 0);
+  }
 }
 
 @media (max-width: 680px) {

@@ -12,19 +12,8 @@ const LOW_ACCURACY_METERS = 3000;
 const defaultSettings = {
   smsPhone: "0912345678",
   smsTemplate: "Tôi đang ở vị trí này và cần hỗ trợ khẩn cấp:",
-  smsAttachLocation: true,
-  geminiKey: ""
+  smsAttachLocation: true
 };
-
-const GEMINI_KEY_STORAGE_KEYS = [
-  SETTINGS_KEY,
-  "GEMINI_API_KEY",
-  "gemini_api_key",
-  "geminiKey",
-  "tram_ai_gemini_key"
-];
-
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 
 const defaultPosts = [
   {
@@ -105,10 +94,14 @@ const aiModal = {
   messages: document.querySelector("#chatMessages"),
   form: document.querySelector("#chatForm"),
   input: document.querySelector("#chatInput"),
+  voiceButton: document.querySelector("#chatVoiceButton"),
   suggestions: document.querySelector("#chatSuggestions")
 };
 
 let lastCoords = null;
+let speechRecognition = null;
+let isListening = false;
+let voiceBaseText = "";
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -525,45 +518,11 @@ async function reloadHomeData() {
 }
 
 function loadSettings() {
-  const settings = { ...defaultSettings };
-
   try {
     const saved = localStorage.getItem(SETTINGS_KEY);
-    if (saved) Object.assign(settings, JSON.parse(saved));
+    if (saved) return { ...defaultSettings, ...JSON.parse(saved) };
   } catch {}
-
-  settings.geminiKey = getGeminiApiKey(settings.geminiKey);
-  return settings;
-}
-
-function getGeminiApiKey(configuredKey = "") {
-  const directKey = String(configuredKey || "").trim();
-  if (directKey) return directKey;
-
-  const runtimeKey = String(window.TRAM_AI_GEMINI_API_KEY || window.GEMINI_API_KEY || "").trim();
-  if (runtimeKey) return runtimeKey;
-
-  const metaKey = document.querySelector('meta[name="gemini-api-key"]')?.content?.trim();
-  if (metaKey) return metaKey;
-
-  try {
-    for (const key of GEMINI_KEY_STORAGE_KEYS) {
-      const value = localStorage.getItem(key);
-      if (!value) continue;
-
-      if (key === SETTINGS_KEY) {
-        const parsed = JSON.parse(value);
-        const savedKey = String(parsed?.geminiKey || "").trim();
-        if (savedKey) return savedKey;
-        continue;
-      }
-
-      const savedKey = String(value).trim();
-      if (savedKey) return savedKey;
-    }
-  } catch {}
-
-  return "";
+  return defaultSettings;
 }
 
 function handleSMSButtonClick() {
@@ -592,6 +551,7 @@ function openAiChatModal() {
 }
 
 function closeAiChatModal() {
+  stopVoiceInput();
   aiModal.root.hidden = true;
   document.body.classList.remove("modal-open");
 }
@@ -660,12 +620,94 @@ function appendChatBubble(text, sender, options = {}) {
   return bubble;
 }
 
-async function callGemini(userInput, apiKey) {
-  const model = String(window.TRAM_AI_GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  
-  console.log(`[Trạm AI] Đang gửi câu hỏi đến Gemini (${model})...`);
-  
+function initVoiceInput() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!aiModal.voiceButton || !SpeechRecognition) {
+    if (aiModal.voiceButton) {
+      aiModal.voiceButton.disabled = true;
+      aiModal.voiceButton.title = "Trình duyệt này chưa hỗ trợ nhập bằng giọng nói";
+      aiModal.voiceButton.setAttribute("aria-label", "Trình duyệt này chưa hỗ trợ nhập bằng giọng nói");
+    }
+    return;
+  }
+
+  speechRecognition = new SpeechRecognition();
+  speechRecognition.lang = "vi-VN";
+  speechRecognition.continuous = false;
+  speechRecognition.interimResults = true;
+  speechRecognition.maxAlternatives = 3;
+
+  speechRecognition.addEventListener("start", () => {
+    isListening = true;
+    aiModal.voiceButton.classList.add("is-listening");
+    aiModal.voiceButton.title = "Đang nghe, bấm để dừng";
+    aiModal.voiceButton.setAttribute("aria-label", "Đang nghe, bấm để dừng");
+    aiModal.input.placeholder = "Đang nghe bà con nói...";
+  });
+
+  speechRecognition.addEventListener("result", (event) => {
+    let finalText = "";
+    let interimText = "";
+
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const transcript = event.results[index][0]?.transcript?.trim() || "";
+      if (!transcript) continue;
+      if (event.results[index].isFinal) {
+        finalText += `${transcript} `;
+      } else {
+        interimText += `${transcript} `;
+      }
+    }
+
+    const recognizedText = `${finalText}${interimText}`.trim();
+    if (!recognizedText) return;
+
+    aiModal.input.value = [voiceBaseText, recognizedText].filter(Boolean).join(" ").trim();
+  });
+
+  speechRecognition.addEventListener("error", (event) => {
+    console.warn("[Trạm AI] Lỗi nhận diện giọng nói:", event.error);
+    if (event.error !== "aborted") {
+      aiModal.input.placeholder = "Không nghe rõ, bà con thử nói lại hoặc nhập bằng tay...";
+    }
+  });
+
+  speechRecognition.addEventListener("end", () => {
+    isListening = false;
+    aiModal.voiceButton.classList.remove("is-listening");
+    aiModal.voiceButton.title = "Nhập bằng giọng nói";
+    aiModal.voiceButton.setAttribute("aria-label", "Nhập bằng giọng nói");
+    aiModal.input.placeholder = "Nhập câu hỏi của bà con tại đây...";
+    aiModal.input.focus();
+  });
+}
+
+function startVoiceInput() {
+  if (!speechRecognition || isListening) return;
+  voiceBaseText = aiModal.input.value.trim();
+  try {
+    speechRecognition.start();
+  } catch (error) {
+    console.warn("[Trạm AI] Không thể bắt đầu nhận diện giọng nói:", error);
+  }
+}
+
+function stopVoiceInput() {
+  if (!speechRecognition || !isListening) return;
+  speechRecognition.stop();
+}
+
+function toggleVoiceInput() {
+  if (isListening) {
+    stopVoiceInput();
+    return;
+  }
+  startVoiceInput();
+}
+
+async function callGemini(userInput) {
+  console.log("[Trạm AI] Đang gửi câu hỏi đến máy chủ Gemini...");
+
   const posts = loadPosts();
   const activeNotices = posts
     .map((p) => `- [${typeName(p.type)}] ${p.title}: ${p.body} (${p.time || "không rõ thời gian"})`)
@@ -692,7 +734,8 @@ Nguyên tắc trả lời:
 1. Luôn ưu tiên thông tin chính thức từ xã nếu câu hỏi liên quan đến lịch họp, thông báo, y tế hay hoạt động tại bản/xã.
 2. Trả lời cực kỳ ngắn gọn, dễ hiểu, đi thẳng vào ý chính (khoảng 2-4 câu). Tránh viết dài dòng vì người dân có thể dùng mạng di động yếu.
 3. Nếu người dân hỏi về sạt lở, thiên tai hoặc tình huống khẩn cấp, hãy ngay lập tức hướng dẫn họ cách phòng tránh, di chuyển lên cao hoặc liên hệ cứu hộ.
-4. Xưng hô thân mật là "Trợ lý" và gọi người dùng là "Bà con", "Anh chị", hoặc "Cô bác". Tránh dùng thuật ngữ kỹ thuật quá phức tạp.`;
+4. Xưng hô thân mật là "Trợ lý" và gọi người dùng là "Bà con", "Anh chị", hoặc "Cô bác". Tránh dùng thuật ngữ kỹ thuật quá phức tạp.
+5. Nếu cần liệt kê nhiều ý, hãy kết thúc trọn vẹn từng ý, không dừng giữa câu.`;
 
   const slicedHistory = aiChatHistory.slice(-6);
   const contents = [...slicedHistory, { role: "user", parts: [{ text: userInput }] }];
@@ -703,12 +746,11 @@ Nguyên tắc trả lời:
       parts: [{ text: systemInstruction }]
     },
     generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 800
+      temperature: 0.65
     }
   };
 
-  const response = await fetch(url, {
+  const response = await fetch("/api/gemini", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -723,7 +765,7 @@ Nguyên tắc trả lời:
   }
 
   const result = await response.json();
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+  const text = result.text;
   if (!text) {
     throw new Error("Không nhận được câu trả lời từ AI.");
   }
@@ -732,6 +774,7 @@ Nguyên tắc trả lời:
 
 async function handleAiSubmit(event) {
   if (event) event.preventDefault();
+  stopVoiceInput();
   const userInput = aiModal.input.value.trim();
   if (!userInput) return;
   
@@ -740,16 +783,8 @@ async function handleAiSubmit(event) {
   
   const loadingBubble = appendChatBubble("Trợ lý đang suy nghĩ...", "assistant loading");
   
-  const settings = loadSettings();
-  if (!settings.geminiKey) {
-    loadingBubble.classList.remove("loading");
-    loadingBubble.style.color = "var(--red)";
-    loadingBubble.textContent = "Đã xảy ra 1 số lỗi không mong muốn, vui lòng báo cáo lại cho cán bộ xã!";
-    return;
-  }
-
   try {
-    const aiResponse = await callGemini(userInput, settings.geminiKey);
+    const aiResponse = await callGemini(userInput);
     console.log("[Trạm AI] Nhận phản hồi thành công:", aiResponse);
     
     loadingBubble.remove();
@@ -761,7 +796,7 @@ async function handleAiSubmit(event) {
     console.error("[Trạm AI] Lỗi phản hồi API:", error);
     loadingBubble.classList.remove("loading");
     loadingBubble.style.color = "var(--red)";
-    loadingBubble.textContent = `❌ Lỗi khi gửi câu hỏi: ${error.message}. Vui lòng kiểm tra lại cấu hình API Key trong trang Admin.`;
+    loadingBubble.textContent = "Đã xảy ra 1 số lỗi không mong muốn, vui lòng báo cáo lại cho cán bộ xã!";
   }
 }
 
@@ -798,6 +833,10 @@ aiModal.root.addEventListener("click", (event) => {
   if (event.target === aiModal.root) closeAiChatModal();
 });
 aiModal.form.addEventListener("submit", handleAiSubmit);
+if (aiModal.voiceButton) {
+  initVoiceInput();
+  aiModal.voiceButton.addEventListener("click", toggleVoiceInput);
+}
 aiModal.suggestions.addEventListener("click", handleSuggestionClick);
 
 window.addEventListener("keydown", (event) => {
