@@ -1,2 +1,0 @@
-# tramaidanang
-a

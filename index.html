@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Trạm AI Hỗ Trợ Người Dân Vùng Cao</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="public-page">
+    <main class="device-shell">
+      <section class="dashboard" aria-label="Bảng thông tin xã">
+        <header class="topbar">
+          <button class="brand home-refresh-button" type="button" id="homeRefreshButton" aria-label="Tải lại thông tin trang chủ">
+            <span class="brand-mark" aria-hidden="true">⌂</span>
+            <div>
+              <h1>Trạm AI Hỗ Trợ Người Dân Vùng Cao</h1>
+              <p id="locationText">Đang xin quyền truy cập vị trí...</p>
+            </div>
+          </button>
+          <div class="top-meta">
+            <span id="signalText">4G</span>
+            <strong id="clockText">--:--</strong>
+            <small id="dateText">--/--/----</small>
+          </div>
+        </header>
+
+        <div class="content-grid">
+          <section class="panel weather-card" aria-labelledby="weatherTitle">
+            <div class="panel-heading">
+              <h2 id="weatherTitle">Thời tiết hiện tại</h2>
+              <span id="weatherUpdated">Đang tải dữ liệu thật</span>
+            </div>
+
+            <div class="permission-banner" id="permissionBanner" hidden>
+              <div class="permission-copy">
+                <strong id="permissionTitle">Cần vị trí để lấy thời tiết thật</strong>
+                <span id="permissionMessage">Hãy cho phép trình duyệt truy cập vị trí hiện tại.</span>
+              </div>
+              <div class="permission-actions">
+                <button class="light-button" type="button" id="locationButton">Lấy lại vị trí</button>
+                <button class="light-button secondary" type="button" id="demoLocationButton">Dùng xã demo</button>
+              </div>
+            </div>
+
+            <div class="weather-hero">
+              <img class="mountain-art" src="assets/mountain-scene.svg" alt="" />
+              <div class="weather-icon" id="currentIcon" aria-hidden="true">⌁</div>
+              <div class="temperature">
+                <strong id="temperatureText">--°C</strong>
+                <span id="conditionText">Đang lấy dữ liệu thời tiết</span>
+              </div>
+            </div>
+
+            <div class="weather-stats" aria-label="Thông số thời tiết">
+              <div>
+                <span class="stat-icon">💧</span>
+                <small>Độ ẩm</small>
+                <strong id="humidityText">--%</strong>
+              </div>
+              <div>
+                <span class="stat-icon">〰</span>
+                <small>Gió</small>
+                <strong id="windText">-- km/h</strong>
+              </div>
+              <div>
+                <span class="stat-icon">☔</span>
+                <small>Khả năng mưa</small>
+                <strong id="rainText">--%</strong>
+              </div>
+            </div>
+
+            <div class="forecast-block">
+              <h3>Dự báo 3 ngày tới</h3>
+              <div class="forecast-list" id="forecastList"></div>
+            </div>
+          </section>
+
+          <section class="panel notice-card" aria-labelledby="noticeTitle">
+            <div class="panel-heading">
+              <h2 id="noticeTitle">Thông tin từ xã</h2>
+              <span id="noticeUpdated">Cập nhật: --:--</span>
+            </div>
+
+            <article class="featured-notice" id="featuredNotice"></article>
+
+            <div class="notice-list-wrap">
+              <h3>Thông báo khác</h3>
+              <div class="notice-list" id="noticeList"></div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="alert-ticker" role="status">
+          <strong>Cảnh báo</strong>
+          <span id="tickerText">Đang chờ thông báo cảnh báo từ xã.</span>
+        </footer>
+      </section>
+    </main>
+
+    <div class="modal-backdrop" id="noticeModal" hidden>
+      <section class="notice-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <button class="modal-close" type="button" id="modalCloseButton" aria-label="Đóng thông báo">×</button>
+        <p class="eyebrow" id="modalType">Thông báo</p>
+        <h2 id="modalTitle"></h2>
+        <p class="modal-time" id="modalTime"></p>
+        <div class="modal-body" id="modalBody"></div>
+        <footer>UBND xã</footer>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

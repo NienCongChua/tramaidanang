@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 260" role="img" aria-label="Dãy núi vùng cao">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#2ea8ff" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#043b7a" stop-opacity=".9"/>
+    </linearGradient>
+    <linearGradient id="ridge" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#7bc7ff"/>
+      <stop offset="1" stop-color="#0d5794"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="260" fill="url(#sky)"/>
+  <path d="M0 190 140 92l86 64 84-52 126 91 93-130 126 130 102-95 120 88 91-116 132 118 101-74 99 74v70H0z" fill="#154d82" opacity=".7"/>
+  <path d="M0 218 116 134l105 72 86-83 117 95 139-118 123 118 119-83 109 77 105-106 181 112v42H0z" fill="url(#ridge)" opacity=".68"/>
+  <path d="M0 240c120-28 236-31 349-10 88 16 161 16 250-4 139-31 274-21 409 16 71 19 136 20 192 9v9H0z" fill="#072f58" opacity=".82"/>
+</svg>

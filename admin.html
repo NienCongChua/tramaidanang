@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Admin - Thông tin từ xã</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="admin-page">
+    <section class="login-screen" id="loginScreen" aria-labelledby="loginTitle">
+      <form class="login-card" id="loginForm">
+        <p class="eyebrow">Khu vực quản trị</p>
+        <h1 id="loginTitle">Đăng nhập cán bộ xã</h1>
+        <label>
+          Tài khoản
+          <input id="usernameInput" autocomplete="username" required placeholder="Nhập tài khoản" />
+        </label>
+
+        <label>
+          Mật khẩu
+          <input id="passwordInput" type="password" autocomplete="current-password" required placeholder="Nhập mật khẩu" />
+        </label>
+
+        <p class="login-error" id="loginError" role="alert"></p>
+        <button class="primary-button" type="submit">Đăng nhập</button>
+      </form>
+    </section>
+
+    <main class="admin-layout" id="adminApp" hidden>
+      <aside class="admin-sidebar">
+        <a class="back-link" href="index.html">← Trang người dân</a>
+        <div>
+          <p class="eyebrow">UBND xã</p>
+          <h1>Đăng thông tin đến người dân</h1>
+          <p class="admin-lead">Demo một xã. Tin đã đăng sẽ hiển thị trên trang người dân trong cùng trình duyệt.</p>
+        </div>
+        <div class="status-card">
+          <span>Trạng thái</span>
+          <strong id="postCountText">0 thông báo</strong>
+          <button class="ghost-button" type="button" id="logoutButton">Đăng xuất</button>
+        </div>
+      </aside>
+
+      <section class="admin-workspace">
+        <form class="editor-panel" id="noticeForm">
+          <div class="form-top">
+            <div>
+              <p class="eyebrow">Bảng tin xã</p>
+              <h2 id="formTitle">Tạo thông báo mới</h2>
+            </div>
+            <button class="ghost-button" type="button" id="resetButton">Làm mới</button>
+          </div>
+
+          <label>
+            Tiêu đề
+            <input id="titleInput" name="title" maxlength="90" required placeholder="Ví dụ: Lịch họp dân tại Nhà Văn Hóa bản" />
+          </label>
+
+          <label>
+            Nội dung
+            <textarea id="bodyInput" name="body" rows="5" required placeholder="Nhập nội dung thông báo..."></textarea>
+          </label>
+
+          <div class="form-grid">
+            <label>
+              Thời gian
+              <input id="timeInput" name="time" maxlength="60" placeholder="Ví dụ: 07:00 ngày 05/07/2026" />
+            </label>
+            <label>
+              Loại tin
+              <select id="typeInput" name="type">
+                <option value="meeting">Họp dân</option>
+                <option value="health">Y tế</option>
+                <option value="weather">Cảnh báo</option>
+                <option value="agriculture">Nông nghiệp</option>
+                <option value="general">Thông tin chung</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="switch-row">
+            <label class="switch">
+              <input id="featuredInput" type="checkbox" />
+              <span></span>
+              Ghim làm thông báo mới
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button class="primary-button" type="submit">Đăng thông báo</button>
+            <button class="danger-button" type="button" id="seedButton">Khôi phục dữ liệu mẫu</button>
+          </div>
+        </form>
+
+        <section class="manager-panel">
+          <div class="form-top">
+            <div>
+              <p class="eyebrow">Đã đăng</p>
+              <h2>Danh sách thông báo</h2>
+            </div>
+          </div>
+          <div class="admin-list" id="adminList"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="admin.js"></script>
+  </body>
+</html>
