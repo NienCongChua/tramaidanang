@@ -113,6 +113,8 @@ let liveFinalText = "";
 let liveSubmitTimer = null;
 let isAiResponding = false;
 let shouldRestartLiveRecognition = false;
+let liveSpeechUtterance = null;
+let liveSpeechTimer = null;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -778,8 +780,11 @@ function stopLiveMode() {
   isLiveMode = false;
   shouldRestartLiveRecognition = false;
   window.clearTimeout(liveSubmitTimer);
+  window.clearTimeout(liveSpeechTimer);
   liveSubmitTimer = null;
+  liveSpeechTimer = null;
   liveFinalText = "";
+  liveSpeechUtterance = null;
   window.speechSynthesis?.cancel();
   if (aiModal.liveButton) {
     aiModal.liveButton.classList.remove("is-live");
@@ -842,6 +847,21 @@ function speechText(value) {
     .trim();
 }
 
+function getVietnameseVoice() {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((voice) => voice.lang?.toLowerCase() === "vi-vn") ||
+    voices.find((voice) => voice.lang?.toLowerCase().startsWith("vi")) ||
+    null
+  );
+}
+
+function estimateSpeechTimeout(text) {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.min(Math.max(words * 520, 2800), 30000);
+}
+
 function speakLiveText(text, statusMessage, liveMessage) {
   return new Promise((resolve) => {
     if (!isLiveMode || !("speechSynthesis" in window)) {
@@ -849,8 +869,27 @@ function speakLiveText(text, statusMessage, liveMessage) {
       return;
     }
 
+    const cleanText = speechText(text);
+    if (!cleanText) {
+      resolve();
+      return;
+    }
+
+    let isSettled = false;
+    const finish = () => {
+      if (isSettled) return;
+      isSettled = true;
+      window.clearTimeout(liveSpeechTimer);
+      liveSpeechTimer = null;
+      liveSpeechUtterance = null;
+      resolve();
+    };
+
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(speechText(text));
+    window.clearTimeout(liveSpeechTimer);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const vietnameseVoice = getVietnameseVoice();
+    if (vietnameseVoice) utterance.voice = vietnameseVoice;
     utterance.lang = "vi-VN";
     utterance.rate = 0.96;
     utterance.pitch = 1;
@@ -858,9 +897,16 @@ function speakLiveText(text, statusMessage, liveMessage) {
       setChatStatus(statusMessage, "speaking");
       setLiveStatus(liveMessage);
     };
-    utterance.onend = resolve;
-    utterance.onerror = resolve;
+    utterance.onend = finish;
+    utterance.onerror = (event) => {
+      console.warn("[Trạm AI] Không đọc được giọng nói Live:", event.error);
+      finish();
+    };
+    liveSpeechUtterance = utterance;
+    setChatStatus(statusMessage, "speaking");
+    setLiveStatus(liveMessage);
     window.speechSynthesis.speak(utterance);
+    liveSpeechTimer = window.setTimeout(finish, estimateSpeechTimeout(cleanText));
   });
 }
 
