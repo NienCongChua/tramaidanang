@@ -38,7 +38,6 @@
               </div>
               <div class="permission-actions">
                 <button class="light-button" type="button" id="locationButton">Lấy lại vị trí</button>
-                <button class="light-button secondary" type="button" id="demoLocationButton">Dùng xã demo</button>
               </div>
             </div>
 
@@ -90,6 +89,23 @@
           </section>
         </div>
 
+        <div class="quick-actions">
+          <button class="action-btn sms-action" id="smsActionButton" type="button">
+            <span class="action-icon">🆘</span>
+            <div>
+              <strong>Báo khẩn cấp kèm vị trí</strong>
+              <small>Chuyển đến ứng dụng tin nhắn</small>
+            </div>
+          </button>
+          <button class="action-btn ai-action" id="aiActionButton" type="button">
+            <span class="action-icon">✨</span>
+            <div>
+              <strong>Hỏi Trợ lý AI Bản</strong>
+              <small>Giải đáp thời tiết & thông báo</small>
+            </div>
+          </button>
+        </div>
+
         <footer class="alert-ticker" role="status">
           <strong>Cảnh báo</strong>
           <span id="tickerText">Đang chờ thông báo cảnh báo từ xã.</span>
@@ -105,6 +121,42 @@
         <p class="modal-time" id="modalTime"></p>
         <div class="modal-body" id="modalBody"></div>
         <footer>UBND xã</footer>
+      </section>
+    </div>
+
+    <!-- AI Chat Modal -->
+    <div class="modal-backdrop" id="aiChatModal" hidden>
+      <section class="chat-modal" role="dialog" aria-modal="true" aria-labelledby="chatTitle">
+        <header class="chat-header">
+          <div class="chat-title-area">
+            <span class="chat-avatar">🤖</span>
+            <div>
+              <h2 id="chatTitle">Trợ lý Trạm AI Đa Năng</h2>
+              <p class="status-indicator"><span class="status-dot"></span> Sẵn sàng hỗ trợ bà con</p>
+            </div>
+          </div>
+          <button class="modal-close" type="button" id="chatCloseButton" aria-label="Đóng chat">×</button>
+        </header>
+
+        <div class="chat-messages" id="chatMessages">
+          <div class="chat-bubble assistant">Xin chào bà con! Tôi là trợ lý của Trạm AI đa năng. Tôi có thể giúp bà con xem thời tiết hiện tại, đọc các thông báo chính thức từ xã, giải đáp về nông nghiệp, chăm sóc sức khỏe hoặc hướng dẫn an toàn khi gặp bão lũ, sạt lở đất.
+
+Bà con muốn hỏi điều gì hôm nay ạ?</div>
+        </div>
+
+        <div class="chat-suggestions" id="chatSuggestions">
+          <button type="button" class="suggestion-chip">🌦️ Thời tiết hôm nay thế nào?</button>
+          <button type="button" class="suggestion-chip">📣 Có thông báo gì mới không?</button>
+          <button type="button" class="suggestion-chip">🌾 Mẹo phòng sâu hại lúa?</button>
+          <button type="button" class="suggestion-chip">🆘 Cách ứng phó khi có sạt lở?</button>
+        </div>
+
+        <form class="chat-input-area" id="chatForm">
+          <input type="text" id="chatInput" placeholder="Nhập câu hỏi của bà con tại đây..." autocomplete="off" required />
+          <button type="submit" class="chat-send-btn" aria-label="Gửi tin nhắn">
+            <span class="send-icon">➔</span>
+          </button>
+        </form>
       </section>
     </div>
 

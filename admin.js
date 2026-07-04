@@ -1,7 +1,15 @@
 const STORAGE_KEY = "tram_ai_commune_posts";
 const AUTH_KEY = "tram_ai_admin_authenticated";
+const SETTINGS_KEY = "tram_ai_system_settings";
 const ADMIN_USERNAME = "admin";
 const ADMIN_PASSWORD = "xa@2026";
+
+const defaultSettings = {
+  smsPhone: "0912345678",
+  smsTemplate: "Tôi đang ở vị trí này và cần hỗ trợ khẩn cấp:",
+  smsAttachLocation: true,
+  geminiKey: ""
+};
 
 const defaultPosts = [
   {
@@ -61,6 +69,15 @@ const seedButton = document.querySelector("#seedButton");
 const adminList = document.querySelector("#adminList");
 const postCountText = document.querySelector("#postCountText");
 
+// Settings selectors
+const settingsForm = document.querySelector("#settingsForm");
+const smsPhoneInput = document.querySelector("#smsPhoneInput");
+const smsTemplateInput = document.querySelector("#smsTemplateInput");
+const smsAttachLocationInput = document.querySelector("#smsAttachLocationInput");
+const geminiKeyInput = document.querySelector("#geminiKeyInput");
+const settingsMessage = document.querySelector("#settingsMessage");
+const resetSettingsButton = document.querySelector("#resetSettingsButton");
+
 let editingId = null;
 
 function isAuthenticated() {
@@ -78,6 +95,74 @@ function showAdmin() {
   adminApp.hidden = false;
   ensureSeedPosts();
   renderAdminList();
+  renderSettings();
+}
+
+function loadSettings() {
+  const saved = localStorage.getItem(SETTINGS_KEY);
+  if (!saved) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(defaultSettings));
+    return defaultSettings;
+  }
+  try {
+    return { ...defaultSettings, ...JSON.parse(saved) };
+  } catch {
+    return defaultSettings;
+  }
+}
+
+function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function renderSettings() {
+  const settings = loadSettings();
+  smsPhoneInput.value = settings.smsPhone;
+  smsTemplateInput.value = settings.smsTemplate;
+  smsAttachLocationInput.checked = Boolean(settings.smsAttachLocation);
+  geminiKeyInput.value = settings.geminiKey || "";
+}
+
+function handleSettingsSubmit(event) {
+  event.preventDefault();
+  if (!isAuthenticated()) {
+    showLogin();
+    return;
+  }
+
+  const previousSettings = loadSettings();
+  const nextGeminiKey = geminiKeyInput.value.trim();
+  const settings = {
+    smsPhone: smsPhoneInput.value.trim(),
+    smsTemplate: smsTemplateInput.value.trim(),
+    smsAttachLocation: smsAttachLocationInput.checked,
+    geminiKey: nextGeminiKey || previousSettings.geminiKey || ""
+  };
+
+  saveSettings(settings);
+  geminiKeyInput.value = settings.geminiKey;
+
+  settingsMessage.style.color = "var(--green)";
+  settingsMessage.textContent = "✓ Đã lưu cấu hình thành công!";
+  setTimeout(() => {
+    settingsMessage.textContent = "";
+  }, 3000);
+}
+
+function resetSettings() {
+  if (!isAuthenticated()) {
+    showLogin();
+    return;
+  }
+  if (confirm("Bạn có chắc chắn muốn khôi phục cấu hình mặc định?")) {
+    saveSettings(defaultSettings);
+    renderSettings();
+    settingsMessage.style.color = "var(--green)";
+    settingsMessage.textContent = "✓ Đã khôi phục cài đặt mặc định.";
+    setTimeout(() => {
+      settingsMessage.textContent = "";
+    }, 3000);
+  }
 }
 
 function handleLogin(event) {
@@ -283,6 +368,9 @@ seedButton.addEventListener("click", () => {
   renderAdminList();
 });
 adminList.addEventListener("click", handleListClick);
+
+settingsForm.addEventListener("submit", handleSettingsSubmit);
+resetSettingsButton.addEventListener("click", resetSettings);
 
 if (isAuthenticated()) {
   showAdmin();
