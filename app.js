@@ -115,7 +115,6 @@ let isAiResponding = false;
 let shouldRestartLiveRecognition = false;
 let liveSpeechUtterance = null;
 let liveSpeechTimer = null;
-let recognitionParts = [];
 let voicesReadyPromise = null;
 let speechSynthesisPrimed = false;
 
@@ -687,12 +686,20 @@ function initVoiceInput() {
   });
 
   speechRecognition.addEventListener("result", (event) => {
-    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+    const finalParts = [];
+    let interimText = "";
+
+    for (let index = 0; index < event.results.length; index += 1) {
       const transcript = event.results[index][0]?.transcript?.trim() || "";
-      recognitionParts[index] = transcript;
+      if (!transcript) continue;
+      if (event.results[index].isFinal) {
+        finalParts.push(transcript);
+      } else {
+        interimText = transcript;
+      }
     }
 
-    const recognizedText = recognitionParts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    const recognizedText = [...finalParts, interimText].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
     if (!recognizedText) return;
 
     if (voiceMode === "live") {
@@ -738,7 +745,6 @@ function startVoiceInput() {
   if (!speechRecognition || isListening) return;
   voiceMode = "dictation";
   shouldRestartLiveRecognition = false;
-  recognitionParts = [];
   voiceBaseText = aiModal.input.value.trim();
   try {
     speechRecognition.start();
@@ -765,7 +771,6 @@ function startLiveRecognition() {
   voiceMode = "live";
   shouldRestartLiveRecognition = true;
   liveFinalText = "";
-  recognitionParts = [];
   aiModal.input.value = "";
   try {
     speechRecognition.start();
