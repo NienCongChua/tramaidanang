@@ -107,14 +107,18 @@ let lastCoords = null;
 let speechRecognition = null;
 let isListening = false;
 let voiceBaseText = "";
+let voiceFinalText = "";
+let voiceInterimText = "";
 let isLiveMode = false;
 let voiceMode = "dictation";
 let liveFinalText = "";
 let liveSubmitTimer = null;
+let lastLiveSubmittedText = "";
 let isAiResponding = false;
 let shouldRestartLiveRecognition = false;
 let liveSpeechUtterance = null;
 let liveSpeechTimer = null;
+let liveSpeechKeepAliveTimer = null;
 let voicesReadyPromise = null;
 let speechSynthesisPrimed = false;
 
@@ -649,6 +653,83 @@ function setLiveStatus(message) {
   }
 }
 
+function normalizeSpeechTranscript(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function mergeSpeechTranscript(current, next) {
+  const currentText = normalizeSpeechTranscript(current);
+  const nextText = normalizeSpeechTranscript(next);
+  if (!currentText) return nextText;
+  if (!nextText) return currentText;
+
+  const currentLower = currentText.toLocaleLowerCase("vi-VN");
+  const nextLower = nextText.toLocaleLowerCase("vi-VN");
+  if (currentLower === nextLower || currentLower.endsWith(` ${nextLower}`)) return currentText;
+  if (nextLower.startsWith(`${currentLower} `)) return nextText;
+
+  const currentWords = currentText.split(/\s+/);
+  const nextWords = nextText.split(/\s+/);
+  const maxOverlap = Math.min(currentWords.length, nextWords.length);
+
+  for (let size = maxOverlap; size > 0; size -= 1) {
+    const currentTail = currentWords.slice(-size).join(" ").toLocaleLowerCase("vi-VN");
+    const nextHead = nextWords.slice(0, size).join(" ").toLocaleLowerCase("vi-VN");
+    if (currentTail === nextHead) {
+      return [...currentWords, ...nextWords.slice(size)].join(" ");
+    }
+  }
+
+  return `${currentText} ${nextText}`;
+}
+
+function resetVoiceTranscript() {
+  voiceFinalText = "";
+  voiceInterimText = "";
+}
+
+function combineVoiceTranscript() {
+  return mergeSpeechTranscript(voiceFinalText, voiceInterimText);
+}
+
+function captureVoiceResult(event) {
+  let hasFinalResult = false;
+
+  for (let index = event.resultIndex; index < event.results.length; index += 1) {
+    const result = event.results[index];
+    const transcript = normalizeSpeechTranscript(result[0]?.transcript);
+    if (!transcript) continue;
+
+    if (result.isFinal) {
+      voiceFinalText = mergeSpeechTranscript(voiceFinalText, transcript);
+      voiceInterimText = "";
+      hasFinalResult = true;
+    } else {
+      voiceInterimText = transcript;
+    }
+  }
+
+  return {
+    text: combineVoiceTranscript(),
+    finalText: voiceFinalText,
+    isFinal: hasFinalResult && event.results[event.results.length - 1]?.isFinal
+  };
+}
+
+async function ensureMicrophonePermission() {
+  if (!navigator.mediaDevices?.getUserMedia) return true;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  } catch (error) {
+    console.warn("[Trạm AI] Không thể xin quyền micro:", error);
+    setLiveStatus("Trình duyệt chưa cho phép dùng micro. Bà con kiểm tra quyền micro rồi bật Live lại.");
+    return false;
+  }
+}
+
 function initVoiceInput() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!aiModal.voiceButton || !SpeechRecognition) {
@@ -686,26 +767,14 @@ function initVoiceInput() {
   });
 
   speechRecognition.addEventListener("result", (event) => {
-    const finalParts = [];
-    let interimText = "";
-
-    for (let index = 0; index < event.results.length; index += 1) {
-      const transcript = event.results[index][0]?.transcript?.trim() || "";
-      if (!transcript) continue;
-      if (event.results[index].isFinal) {
-        finalParts.push(transcript);
-      } else {
-        interimText = transcript;
-      }
-    }
-
-    const recognizedText = [...finalParts, interimText].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+    const recognized = captureVoiceResult(event);
+    const recognizedText = recognized.text;
     if (!recognizedText) return;
 
     if (voiceMode === "live") {
-      liveFinalText = recognizedText;
       aiModal.input.value = recognizedText;
-      if (event.results[event.results.length - 1]?.isFinal) {
+      if (recognized.isFinal) {
+        liveFinalText = recognized.finalText || recognizedText;
         scheduleLiveSubmit();
       }
       return;
@@ -743,9 +812,11 @@ function initVoiceInput() {
 
 function startVoiceInput() {
   if (!speechRecognition || isListening) return;
+  if (isAiResponding) return;
   voiceMode = "dictation";
   shouldRestartLiveRecognition = false;
   voiceBaseText = aiModal.input.value.trim();
+  resetVoiceTranscript();
   try {
     speechRecognition.start();
   } catch (error) {
@@ -771,6 +842,8 @@ function startLiveRecognition() {
   voiceMode = "live";
   shouldRestartLiveRecognition = true;
   liveFinalText = "";
+  lastLiveSubmittedText = "";
+  resetVoiceTranscript();
   aiModal.input.value = "";
   try {
     speechRecognition.start();
@@ -784,9 +857,12 @@ function stopLiveMode() {
   shouldRestartLiveRecognition = false;
   window.clearTimeout(liveSubmitTimer);
   window.clearTimeout(liveSpeechTimer);
+  stopSpeechKeepAlive();
   liveSubmitTimer = null;
   liveSpeechTimer = null;
   liveFinalText = "";
+  lastLiveSubmittedText = "";
+  resetVoiceTranscript();
   liveSpeechUtterance = null;
   window.speechSynthesis?.cancel();
   if (aiModal.liveButton) {
@@ -805,6 +881,8 @@ async function startLiveMode() {
     return;
   }
 
+  stopVoiceInput();
+  resetVoiceTranscript();
   primeSpeechSynthesis();
   isLiveMode = true;
   if (aiModal.liveButton) {
@@ -813,7 +891,16 @@ async function startLiveMode() {
     aiModal.liveButton.querySelector("span:last-child").textContent = "Tắt trò chuyện Live";
   }
   setChatStatus("Live đang khởi động", "speaking");
-  setLiveStatus("Live đã bật. Trợ lý sẽ chào bà con trước khi mở micro.");
+  setLiveStatus("Live đã bật. Trợ lý đang kiểm tra quyền micro...");
+  const hasMicrophonePermission = await ensureMicrophonePermission();
+  if (!isLiveMode) return;
+  if (!hasMicrophonePermission) {
+    stopLiveMode();
+    setLiveStatus("Trình duyệt chưa cho phép dùng micro. Bà con kiểm tra quyền micro rồi bật Live lại.");
+    return;
+  }
+
+  setLiveStatus("Trợ lý sẽ chào bà con trước khi mở micro.");
   await speakLiveWelcome();
   if (!isLiveMode) return;
   setChatStatus("Đang nghe bà con nói", "listening");
@@ -830,12 +917,16 @@ function toggleLiveMode() {
 }
 
 function scheduleLiveSubmit() {
-  if (!isLiveMode || !liveFinalText) return;
+  const nextLiveText = normalizeSpeechTranscript(liveFinalText);
+  if (!isLiveMode || !nextLiveText || nextLiveText === lastLiveSubmittedText) return;
   window.clearTimeout(liveSubmitTimer);
   liveSubmitTimer = window.setTimeout(() => {
-    if (!isLiveMode || isAiResponding || !liveFinalText.trim()) return;
-    aiModal.input.value = liveFinalText.trim();
+    const submittedText = normalizeSpeechTranscript(liveFinalText);
+    if (!isLiveMode || isAiResponding || !submittedText || submittedText === lastLiveSubmittedText) return;
+    aiModal.input.value = submittedText;
+    lastLiveSubmittedText = submittedText;
     liveFinalText = "";
+    resetVoiceTranscript();
     handleAiSubmit(null, { fromLive: true });
   }, 900);
 }
@@ -852,7 +943,7 @@ function speechText(value) {
 }
 
 function getVietnameseVoice() {
-  if (!("speechSynthesis" in window)) return null;
+  if (!canUseSpeechSynthesis()) return null;
   const voices = window.speechSynthesis.getVoices();
   return (
     voices.find((voice) => voice.lang?.toLowerCase() === "vi-vn") ||
@@ -862,7 +953,7 @@ function getVietnameseVoice() {
 }
 
 function ensureVoicesReady() {
-  if (!("speechSynthesis" in window)) return Promise.resolve();
+  if (!canUseSpeechSynthesis()) return Promise.resolve();
   if (window.speechSynthesis.getVoices().length) return Promise.resolve();
   if (voicesReadyPromise) return voicesReadyPromise;
 
@@ -878,16 +969,34 @@ function ensureVoicesReady() {
   return voicesReadyPromise;
 }
 
+function canUseSpeechSynthesis() {
+  return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+}
+
+function stopSpeechKeepAlive() {
+  window.clearInterval(liveSpeechKeepAliveTimer);
+  liveSpeechKeepAliveTimer = null;
+}
+
+function startSpeechKeepAlive() {
+  stopSpeechKeepAlive();
+  liveSpeechKeepAliveTimer = window.setInterval(() => {
+    if (!canUseSpeechSynthesis()) return;
+    window.speechSynthesis.resume();
+  }, 8000);
+}
+
 function primeSpeechSynthesis() {
-  if (speechSynthesisPrimed || !("speechSynthesis" in window)) return;
-  speechSynthesisPrimed = true;
+  if (speechSynthesisPrimed || !canUseSpeechSynthesis()) return;
   ensureVoicesReady();
 
   try {
     const utterance = new SpeechSynthesisUtterance(" ");
     utterance.lang = "vi-VN";
     utterance.volume = 0.01;
+    window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
+    speechSynthesisPrimed = true;
   } catch (error) {
     console.warn("[Trạm AI] Không thể khởi động phát giọng nói:", error);
   }
@@ -920,7 +1029,7 @@ function estimateSpeechTimeout(text) {
 function speakChunk(text, options = {}) {
   return new Promise((resolve) => {
     const { requireLiveMode = true } = options;
-    if ((requireLiveMode && !isLiveMode) || !("speechSynthesis" in window)) {
+    if ((requireLiveMode && !isLiveMode) || !canUseSpeechSynthesis()) {
       resolve();
       return;
     }
@@ -932,6 +1041,7 @@ function speakChunk(text, options = {}) {
       window.clearTimeout(liveSpeechTimer);
       liveSpeechTimer = null;
       liveSpeechUtterance = null;
+      stopSpeechKeepAlive();
       resolve();
     };
 
@@ -950,13 +1060,20 @@ function speakChunk(text, options = {}) {
     liveSpeechUtterance = utterance;
     window.speechSynthesis.resume();
     window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.resume();
+    startSpeechKeepAlive();
     liveSpeechTimer = window.setTimeout(finish, estimateSpeechTimeout(text));
   });
 }
 
 async function speakText(text, statusMessage, liveMessage, options = {}) {
   const { requireLiveMode = true } = options;
-  if ((requireLiveMode && !isLiveMode) || !("speechSynthesis" in window)) return;
+  if (requireLiveMode && !isLiveMode) return;
+  if (!canUseSpeechSynthesis()) {
+    setChatStatus("Trình duyệt này chưa hỗ trợ phát giọng nói", "ready");
+    if (liveMessage) setLiveStatus("Trình duyệt này chưa hỗ trợ phát giọng nói.");
+    return;
+  }
 
   const cleanText = speechText(text);
   if (!cleanText) return;
@@ -966,6 +1083,7 @@ async function speakText(text, statusMessage, liveMessage, options = {}) {
 
   window.speechSynthesis.cancel();
   window.clearTimeout(liveSpeechTimer);
+  stopSpeechKeepAlive();
   liveSpeechTimer = null;
   liveSpeechUtterance = null;
   setChatStatus(statusMessage, "speaking");
@@ -1065,6 +1183,7 @@ Nguyên tắc trả lời:
 
 async function handleAiSubmit(event, options = {}) {
   if (event) event.preventDefault();
+  primeSpeechSynthesis();
   if (isAiResponding) return;
   isAiResponding = true;
   shouldRestartLiveRecognition = false;
