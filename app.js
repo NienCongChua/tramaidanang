@@ -115,6 +115,8 @@ let isAiResponding = false;
 let shouldRestartLiveRecognition = false;
 let liveSpeechUtterance = null;
 let liveSpeechTimer = null;
+let recognitionParts = [];
+let voicesReadyPromise = null;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -683,28 +685,20 @@ function initVoiceInput() {
   });
 
   speechRecognition.addEventListener("result", (event) => {
-    let finalText = "";
-    let interimText = "";
-
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
       const transcript = event.results[index][0]?.transcript?.trim() || "";
-      if (!transcript) continue;
-      if (event.results[index].isFinal) {
-        finalText += `${transcript} `;
-      } else {
-        interimText += `${transcript} `;
-      }
+      recognitionParts[index] = transcript;
     }
 
-    const recognizedText = `${finalText}${interimText}`.trim();
+    const recognizedText = recognitionParts.filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
     if (!recognizedText) return;
 
     if (voiceMode === "live") {
-      if (finalText.trim()) {
-        liveFinalText = [liveFinalText, finalText.trim()].filter(Boolean).join(" ").trim();
+      liveFinalText = recognizedText;
+      aiModal.input.value = recognizedText;
+      if (event.results[event.results.length - 1]?.isFinal) {
+        scheduleLiveSubmit();
       }
-      aiModal.input.value = [liveFinalText, interimText.trim()].filter(Boolean).join(" ").trim();
-      scheduleLiveSubmit();
       return;
     }
 
@@ -742,6 +736,7 @@ function startVoiceInput() {
   if (!speechRecognition || isListening) return;
   voiceMode = "dictation";
   shouldRestartLiveRecognition = false;
+  recognitionParts = [];
   voiceBaseText = aiModal.input.value.trim();
   try {
     speechRecognition.start();
@@ -768,6 +763,7 @@ function startLiveRecognition() {
   voiceMode = "live";
   shouldRestartLiveRecognition = true;
   liveFinalText = "";
+  recognitionParts = [];
   aiModal.input.value = "";
   try {
     speechRecognition.start();
@@ -857,20 +853,50 @@ function getVietnameseVoice() {
   );
 }
 
+function ensureVoicesReady() {
+  if (!("speechSynthesis" in window)) return Promise.resolve();
+  if (window.speechSynthesis.getVoices().length) return Promise.resolve();
+  if (voicesReadyPromise) return voicesReadyPromise;
+
+  voicesReadyPromise = new Promise((resolve) => {
+    const done = () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", done);
+      resolve();
+    };
+    window.speechSynthesis.addEventListener("voiceschanged", done, { once: true });
+    window.setTimeout(done, 900);
+  });
+
+  return voicesReadyPromise;
+}
+
+function splitSpeechChunks(text) {
+  const sentences = text.match(/[^.!?。！？]+[.!?。！？]?/g) || [text];
+  const chunks = [];
+  let chunk = "";
+
+  sentences.forEach((sentence) => {
+    const next = [chunk, sentence.trim()].filter(Boolean).join(" ");
+    if (next.length > 180 && chunk) {
+      chunks.push(chunk);
+      chunk = sentence.trim();
+    } else {
+      chunk = next;
+    }
+  });
+
+  if (chunk) chunks.push(chunk);
+  return chunks;
+}
+
 function estimateSpeechTimeout(text) {
   const words = text.split(/\s+/).filter(Boolean).length;
   return Math.min(Math.max(words * 520, 2800), 30000);
 }
 
-function speakLiveText(text, statusMessage, liveMessage) {
+function speakChunk(text) {
   return new Promise((resolve) => {
     if (!isLiveMode || !("speechSynthesis" in window)) {
-      resolve();
-      return;
-    }
-
-    const cleanText = speechText(text);
-    if (!cleanText) {
       resolve();
       return;
     }
@@ -885,29 +911,49 @@ function speakLiveText(text, statusMessage, liveMessage) {
       resolve();
     };
 
-    window.speechSynthesis.cancel();
-    window.clearTimeout(liveSpeechTimer);
-    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const utterance = new SpeechSynthesisUtterance(text);
     const vietnameseVoice = getVietnameseVoice();
     if (vietnameseVoice) utterance.voice = vietnameseVoice;
     utterance.lang = "vi-VN";
     utterance.rate = 0.96;
     utterance.pitch = 1;
-    utterance.onstart = () => {
-      setChatStatus(statusMessage, "speaking");
-      setLiveStatus(liveMessage);
-    };
+    utterance.volume = 1;
     utterance.onend = finish;
     utterance.onerror = (event) => {
       console.warn("[Trạm AI] Không đọc được giọng nói Live:", event.error);
       finish();
     };
     liveSpeechUtterance = utterance;
+    window.speechSynthesis.resume();
+    window.speechSynthesis.speak(utterance);
+    liveSpeechTimer = window.setTimeout(finish, estimateSpeechTimeout(text));
+  });
+}
+
+async function speakLiveText(text, statusMessage, liveMessage) {
+  if (!isLiveMode || !("speechSynthesis" in window)) return;
+
+  const cleanText = speechText(text);
+  if (!cleanText) return;
+
+  await ensureVoicesReady();
+  if (!isLiveMode) return;
+
+  window.speechSynthesis.cancel();
+  window.clearTimeout(liveSpeechTimer);
+  liveSpeechTimer = null;
+  liveSpeechUtterance = null;
+  setChatStatus(statusMessage, "speaking");
+  setLiveStatus(liveMessage);
+
+  await new Promise((resolve) => window.setTimeout(resolve, 160));
+
+  for (const chunk of splitSpeechChunks(cleanText)) {
+    if (!isLiveMode) break;
     setChatStatus(statusMessage, "speaking");
     setLiveStatus(liveMessage);
-    window.speechSynthesis.speak(utterance);
-    liveSpeechTimer = window.setTimeout(finish, estimateSpeechTimeout(cleanText));
-  });
+    await speakChunk(chunk);
+  }
 }
 
 function speakAssistantResponse(text) {
