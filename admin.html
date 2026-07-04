@@ -42,55 +42,96 @@
       </aside>
 
       <section class="admin-workspace">
-        <form class="editor-panel" id="noticeForm">
-          <div class="form-top">
-            <div>
-              <p class="eyebrow">Bảng tin xã</p>
-              <h2 id="formTitle">Tạo thông báo mới</h2>
+        <div class="editor-column">
+          <form class="editor-panel" id="noticeForm">
+            <div class="form-top">
+              <div>
+                <p class="eyebrow">Bảng tin xã</p>
+                <h2 id="formTitle">Tạo thông báo mới</h2>
+              </div>
+              <button class="ghost-button" type="button" id="resetButton">Làm mới</button>
             </div>
-            <button class="ghost-button" type="button" id="resetButton">Làm mới</button>
-          </div>
 
-          <label>
-            Tiêu đề
-            <input id="titleInput" name="title" maxlength="90" required placeholder="Ví dụ: Lịch họp dân tại Nhà Văn Hóa bản" />
-          </label>
-
-          <label>
-            Nội dung
-            <textarea id="bodyInput" name="body" rows="5" required placeholder="Nhập nội dung thông báo..."></textarea>
-          </label>
-
-          <div class="form-grid">
             <label>
-              Thời gian
-              <input id="timeInput" name="time" maxlength="60" placeholder="Ví dụ: 07:00 ngày 05/07/2026" />
+              Tiêu đề
+              <input id="titleInput" name="title" maxlength="90" required placeholder="Ví dụ: Lịch họp dân tại Nhà Văn Hóa bản" />
             </label>
+
             <label>
-              Loại tin
-              <select id="typeInput" name="type">
-                <option value="meeting">Họp dân</option>
-                <option value="health">Y tế</option>
-                <option value="weather">Cảnh báo</option>
-                <option value="agriculture">Nông nghiệp</option>
-                <option value="general">Thông tin chung</option>
-              </select>
+              Nội dung
+              <textarea id="bodyInput" name="body" rows="5" required placeholder="Nhập nội dung thông báo..."></textarea>
             </label>
-          </div>
 
-          <div class="switch-row">
-            <label class="switch">
-              <input id="featuredInput" type="checkbox" />
-              <span></span>
-              Ghim làm thông báo mới
+            <div class="form-grid">
+              <label>
+                Thời gian
+                <input id="timeInput" name="time" maxlength="60" placeholder="Ví dụ: 07:00 ngày 05/07/2026" />
+              </label>
+              <label>
+                Loại tin
+                <select id="typeInput" name="type">
+                  <option value="meeting">Họp dân</option>
+                  <option value="health">Y tế</option>
+                  <option value="weather">Cảnh báo</option>
+                  <option value="agriculture">Nông nghiệp</option>
+                  <option value="general">Thông tin chung</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="switch-row">
+              <label class="switch">
+                <input id="featuredInput" type="checkbox" />
+                <span></span>
+                Ghim làm thông báo mới
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Đăng thông báo</button>
+              <button class="danger-button" type="button" id="seedButton">Khôi phục dữ liệu mẫu</button>
+            </div>
+          </form>
+
+          <form class="editor-panel settings-panel" id="settingsForm" style="margin-top: 20px;">
+            <div class="form-top">
+              <div>
+                <p class="eyebrow">Cấu hình hệ thống</p>
+                <h2>Trợ lý AI & Nhắn tin</h2>
+              </div>
+              <button class="ghost-button" type="button" id="resetSettingsButton">Mặc định</button>
+            </div>
+
+            <label>
+              Số điện thoại nhận tin
+              <input id="smsPhoneInput" name="smsPhone" type="tel" required placeholder="Ví dụ: 0912345678" />
             </label>
-          </div>
 
-          <div class="form-actions">
-            <button class="primary-button" type="submit">Đăng thông báo</button>
-            <button class="danger-button" type="button" id="seedButton">Khôi phục dữ liệu mẫu</button>
-          </div>
-        </form>
+            <label>
+              Mẫu tin nhắn khẩn cấp
+              <textarea id="smsTemplateInput" name="smsTemplate" rows="3" required placeholder="Ví dụ: Tôi đang ở vị trí này và cần cứu trợ:"></textarea>
+            </label>
+
+            <div class="switch-row">
+              <label class="switch">
+                <input id="smsAttachLocationInput" type="checkbox" />
+                <span></span>
+                Tự động đính kèm vị trí hiện tại
+              </label>
+            </div>
+
+            <label>
+              Gemini API Key
+              <input id="geminiKeyInput" name="geminiKey" type="password" placeholder="Nhập API Key Gemini..." />
+            </label>
+
+            <p class="settings-message" id="settingsMessage" style="margin: 0 0 12px; font-weight: 700; min-height: 20px;"></p>
+
+            <div class="form-actions">
+              <button class="primary-button" type="submit">Lưu cấu hình</button>
+            </div>
+          </form>
+        </div>
 
         <section class="manager-panel">
           <div class="form-top">

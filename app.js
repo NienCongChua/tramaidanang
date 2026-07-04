@@ -1,5 +1,6 @@
 const STORAGE_KEY = "tram_ai_commune_posts";
 const GEO_CACHE_KEY = "tram_ai_geo_cache";
+const SETTINGS_KEY = "tram_ai_system_settings";
 const DEFAULT_COMMUNE = "X, tỉnh Z";
 const DEFAULT_COORDS = {
   latitude: 19.3833,
@@ -7,6 +8,13 @@ const DEFAULT_COORDS = {
   label: "Xã demo Kỳ Sơn, Nghệ An"
 };
 const LOW_ACCURACY_METERS = 3000;
+
+const defaultSettings = {
+  smsPhone: "0912345678",
+  smsTemplate: "Tôi đang ở vị trí này và cần hỗ trợ khẩn cấp:",
+  smsAttachLocation: true,
+  geminiKey: ""
+};
 
 const defaultPosts = [
   {
@@ -68,7 +76,8 @@ const elements = {
   permissionTitle: document.querySelector("#permissionTitle"),
   permissionMessage: document.querySelector("#permissionMessage"),
   locationButton: document.querySelector("#locationButton"),
-  demoLocationButton: document.querySelector("#demoLocationButton")
+  smsActionButton: document.querySelector("#smsActionButton"),
+  aiActionButton: document.querySelector("#aiActionButton")
 };
 
 const modal = {
@@ -78,6 +87,15 @@ const modal = {
   title: document.querySelector("#modalTitle"),
   time: document.querySelector("#modalTime"),
   body: document.querySelector("#modalBody")
+};
+
+const aiModal = {
+  root: document.querySelector("#aiChatModal"),
+  closeButton: document.querySelector("#chatCloseButton"),
+  messages: document.querySelector("#chatMessages"),
+  form: document.querySelector("#chatForm"),
+  input: document.querySelector("#chatInput"),
+  suggestions: document.querySelector("#chatSuggestions")
 };
 
 let lastCoords = null;
@@ -446,7 +464,7 @@ async function loadWeatherFromPosition() {
       elements.location.textContent = `Vị trí ước lượng · ${placeLabel}`;
       setLocationBanner(
         "Vị trí trình duyệt có thể chưa chính xác",
-        "Máy tính thường định vị bằng IP/Wi-Fi nên có thể lệch xa. Nếu đang demo cho xã, chọn dùng xã demo.",
+        "Máy tính thường định vị bằng IP/Wi-Fi nên có thể lệch xa.",
         true
       );
     } else {
@@ -464,40 +482,11 @@ async function loadWeatherFromPosition() {
   } catch (error) {
     setLocationBanner(
       "Chưa lấy được vị trí",
-      "Cho phép quyền vị trí để lấy thời tiết thật theo nơi đang truy cập, hoặc dùng vị trí xã demo.",
+      "Cho phép quyền vị trí để lấy thời tiết thật theo nơi đang truy cập.",
       true
     );
     elements.location.textContent = `${DEFAULT_COMMUNE} · chưa có quyền vị trí`;
     setWeatherError(error.message || "Không thể lấy vị trí hiện tại");
-  }
-}
-
-async function loadDemoCommuneWeather() {
-  lastCoords = { latitude: DEFAULT_COORDS.latitude, longitude: DEFAULT_COORDS.longitude };
-  try {
-    const geoResult = await reverseGeocode(DEFAULT_COORDS.latitude, DEFAULT_COORDS.longitude);
-    elements.location.textContent = buildPlaceLabel(
-      geoResult,
-      DEFAULT_COORDS.latitude,
-      DEFAULT_COORDS.longitude,
-      0,
-      DEFAULT_COORDS.label
-    );
-  } catch {
-    elements.location.textContent = `${DEFAULT_COORDS.label} · ${DEFAULT_COORDS.latitude.toFixed(4)}, ${DEFAULT_COORDS.longitude.toFixed(4)}`;
-  }
-  setLocationBanner(
-    "Đang dùng vị trí xã demo",
-    "Thời tiết bên dưới lấy từ API thật theo tọa độ Kỳ Sơn, Nghệ An.",
-    true
-  );
-  setWeatherLoading("Đang tải thời tiết xã demo...");
-
-  try {
-    const weather = await fetchWeather(DEFAULT_COORDS.latitude, DEFAULT_COORDS.longitude);
-    renderWeather(weather);
-  } catch {
-    setWeatherError("Không thể tải thời tiết xã demo");
   }
 }
 
@@ -525,6 +514,167 @@ async function reloadHomeData() {
   }
 }
 
+function loadSettings() {
+  try {
+    const saved = localStorage.getItem(SETTINGS_KEY);
+    if (saved) return { ...defaultSettings, ...JSON.parse(saved) };
+  } catch {}
+  return defaultSettings;
+}
+
+function handleSMSButtonClick() {
+  const settings = loadSettings();
+  const phone = settings.smsPhone || "0912345678";
+  const template = settings.smsTemplate || "Tôi đang ở vị trí này và cần hỗ trợ khẩn cấp:";
+  
+  let messageBody = template;
+  if (settings.smsAttachLocation !== false) {
+    let locationText = elements.location.textContent || "";
+    locationText = locationText.replace(" · địa danh © OpenStreetMap", "");
+    messageBody = `${template}\n📍 Vị trí: ${locationText}`;
+  }
+  
+  const smsUri = `sms:${phone}?body=${encodeURIComponent(messageBody)}`;
+  window.location.href = smsUri;
+}
+
+let aiChatHistory = [];
+
+function openAiChatModal() {
+  aiModal.root.hidden = false;
+  document.body.classList.add("modal-open");
+  aiModal.input.focus();
+  scrollToBottom();
+}
+
+function closeAiChatModal() {
+  aiModal.root.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function scrollToBottom() {
+  aiModal.messages.scrollTop = aiModal.messages.scrollHeight;
+}
+
+function appendChatBubble(text, sender) {
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble ${sender}`;
+  bubble.textContent = text;
+  aiModal.messages.appendChild(bubble);
+  scrollToBottom();
+  return bubble;
+}
+
+async function callGemini(userInput, apiKey) {
+  const model = "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  
+  const posts = loadPosts();
+  const activeNotices = posts
+    .map((p) => `- [${typeName(p.type)}] ${p.title}: ${p.body} (${p.time || "không rõ thời gian"})`)
+    .join("\n");
+  
+  const locationLabel = elements.location.textContent || "Không rõ";
+  const weatherTemp = elements.temperature.textContent || "--°C";
+  const weatherCond = elements.condition.textContent || "Đang cập nhật";
+  const weatherHum = elements.humidity.textContent || "--%";
+  const weatherWind = elements.wind.textContent || "-- km/h";
+  const weatherRain = elements.rain.textContent || "--%";
+  
+  const systemInstruction = `Bạn là "Trợ lý Trạm AI Đa Năng", một trợ lý thông minh thân thiện, mộc mạc và nhiệt tình tại trạm hỗ trợ người dân vùng cao.
+Nhiệm vụ của bạn là giúp đỡ người dân bản địa giải đáp thắc mắc về thời tiết, thông báo của xã, nông nghiệp, y tế, đời sống hoặc hướng dẫn các kỹ năng khẩn cấp (như sạt lở, lũ quét).
+Hãy sử dụng ngôn từ dễ hiểu, ngắn gọn, ấm áp, gần gũi với bà con vùng cao.
+
+Thông tin ngữ cảnh tại Trạm AI (dùng thông tin này để trả lời chính xác):
+- Vị trí của trạm/người dân: ${locationLabel.replace(" · địa danh © OpenStreetMap", "")}
+- Thời tiết hiện tại: Nhiệt độ: ${weatherTemp}, Trạng thái: ${weatherCond}, Độ ẩm: ${weatherHum}, Gió: ${weatherWind}, Khả năng mưa: ${weatherRain}
+- Danh sách thông báo chính thức từ Ủy ban nhân dân (UBND) xã:
+${activeNotices || "Hiện chưa có thông báo mới nào từ xã."}
+
+Nguyên tắc trả lời:
+1. Luôn ưu tiên thông tin chính thức từ xã nếu câu hỏi liên quan đến lịch họp, thông báo, y tế hay hoạt động tại bản/xã.
+2. Trả lời cực kỳ ngắn gọn, dễ hiểu, đi thẳng vào ý chính (khoảng 2-4 câu). Tránh viết dài dòng vì người dân có thể dùng mạng di động yếu.
+3. Nếu người dân hỏi về sạt lở, thiên tai hoặc tình huống khẩn cấp, hãy ngay lập tức hướng dẫn họ cách phòng tránh, di chuyển lên cao hoặc liên hệ cứu hộ.
+4. Xưng hô thân mật là "Trợ lý" và gọi người dùng là "Bà con", "Anh chị", hoặc "Cô bác". Tránh dùng thuật ngữ kỹ thuật quá phức tạp.`;
+
+  const slicedHistory = aiChatHistory.slice(-6);
+  const contents = [...slicedHistory, { role: "user", parts: [{ text: userInput }] }];
+  
+  const payload = {
+    contents: contents,
+    systemInstruction: {
+      parts: [{ text: systemInstruction }]
+    },
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: 800
+    }
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const message = errorData.error?.message || `HTTP error ${response.status}`;
+    throw new Error(message);
+  }
+
+  const result = await response.json();
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Không nhận được câu trả lời từ AI.");
+  }
+  return text;
+}
+
+async function handleAiSubmit(event) {
+  if (event) event.preventDefault();
+  const userInput = aiModal.input.value.trim();
+  if (!userInput) return;
+  
+  aiModal.input.value = "";
+  appendChatBubble(userInput, "user");
+  
+  const loadingBubble = appendChatBubble("Trợ lý đang suy nghĩ...", "assistant loading");
+  
+  const settings = loadSettings();
+  if (!settings.geminiKey) {
+    loadingBubble.classList.remove("loading");
+    loadingBubble.style.color = "var(--red)";
+    loadingBubble.textContent = "⚠️ Cán bộ xã chưa cấu hình API Key cho Gemini. Vui lòng truy cập trang Admin (Tài khoản: admin / Mật khẩu: xa@2026) -> Cấu hình hệ thống để thiết lập.";
+    return;
+  }
+
+  try {
+    const aiResponse = await callGemini(userInput, settings.geminiKey);
+    
+    loadingBubble.remove();
+    appendChatBubble(aiResponse, "assistant");
+    
+    aiChatHistory.push({ role: "user", parts: [{ text: userInput }] });
+    aiChatHistory.push({ role: "model", parts: [{ text: aiResponse }] });
+  } catch (error) {
+    loadingBubble.classList.remove("loading");
+    loadingBubble.style.color = "var(--red)";
+    loadingBubble.textContent = `❌ Lỗi khi gửi câu hỏi: ${error.message}. Vui lòng kiểm tra lại cấu hình API Key trong trang Admin.`;
+  }
+}
+
+function handleSuggestionClick(event) {
+  const button = event.target.closest(".suggestion-chip");
+  if (!button) return;
+  
+  const text = button.textContent.trim().replace(/^[^\s]+\s*/, "");
+  aiModal.input.value = text;
+  handleAiSubmit();
+}
+
 ensureSeedPosts();
 updateClock();
 renderPosts();
@@ -533,14 +683,29 @@ loadWeatherFromPosition();
 
 elements.homeRefresh.addEventListener("click", reloadHomeData);
 elements.locationButton.addEventListener("click", loadWeatherFromPosition);
-elements.demoLocationButton.addEventListener("click", loadDemoCommuneWeather);
 elements.noticeList.addEventListener("click", handleNoticeClick);
 modal.closeButton.addEventListener("click", closeNoticeModal);
 modal.root.addEventListener("click", (event) => {
   if (event.target === modal.root) closeNoticeModal();
 });
+
+// Quick action buttons
+elements.smsActionButton.addEventListener("click", handleSMSButtonClick);
+elements.aiActionButton.addEventListener("click", openAiChatModal);
+
+// AI Modal controls
+aiModal.closeButton.addEventListener("click", closeAiChatModal);
+aiModal.root.addEventListener("click", (event) => {
+  if (event.target === aiModal.root) closeAiChatModal();
+});
+aiModal.form.addEventListener("submit", handleAiSubmit);
+aiModal.suggestions.addEventListener("click", handleSuggestionClick);
+
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !modal.root.hidden) closeNoticeModal();
+  if (event.key === "Escape") {
+    if (!modal.root.hidden) closeNoticeModal();
+    if (!aiModal.root.hidden) closeAiChatModal();
+  }
 });
 setInterval(updateClock, 1000);
 setInterval(refreshWeather, 15 * 60 * 1000);
