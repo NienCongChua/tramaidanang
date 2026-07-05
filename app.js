@@ -298,7 +298,8 @@ function normalizeAdminName(value) {
 function loadAdminDivisionsCache() {
   try {
     const cached = JSON.parse(sessionStorage.getItem(ADMIN_DIVISIONS_CACHE_KEY));
-    if (cached?.savedAt && Date.now() - cached.savedAt < 24 * 60 * 60 * 1000 && Array.isArray(cached.data)) {
+    const hasWards = Array.isArray(cached?.data) && cached.data.some((province) => province.wards?.length);
+    if (cached?.savedAt && Date.now() - cached.savedAt < 24 * 60 * 60 * 1000 && hasWards) {
       return cached.data;
     }
   } catch {}
@@ -319,6 +320,7 @@ async function fetchAdminDivisions() {
   if (!response.ok) throw new Error("Không lấy được dữ liệu hành chính mới");
   const data = await response.json();
   if (!Array.isArray(data)) throw new Error("Dữ liệu hành chính mới không hợp lệ");
+  if (!data.some((province) => province.wards?.length)) throw new Error("Dữ liệu hành chính mới chưa có xã/phường");
   saveAdminDivisionsCache(data);
   return data;
 }
@@ -334,6 +336,30 @@ function findAdminNameMatch(items, value) {
     null;
 }
 
+function findBestAdminNameMatch(items, values) {
+  const candidates = values.map(normalizeAdminName).filter(Boolean);
+  if (!candidates.length) return null;
+
+  const scored = items
+    .map((item) => {
+      const itemName = normalizeAdminName(item.name);
+      if (!itemName) return null;
+
+      let bestScore = 0;
+      for (const candidate of candidates) {
+        if (itemName === candidate) bestScore = Math.max(bestScore, 100);
+        else if (itemName.includes(candidate)) bestScore = Math.max(bestScore, 80 + candidate.length / 100);
+        else if (candidate.includes(itemName)) bestScore = Math.max(bestScore, 70 + itemName.length / 100);
+      }
+
+      return bestScore ? { item, score: bestScore } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+
+  return scored[0]?.item || null;
+}
+
 function flattenAdminWards(provinces) {
   return provinces.flatMap((province) =>
     (province.wards || []).map((ward) => ({
@@ -345,6 +371,19 @@ function flattenAdminWards(provinces) {
 
 function firstAddressPart(address, keys) {
   return keys.map((key) => address?.[key]).find(Boolean) || "";
+}
+
+function addressParts(address, keys) {
+  const seen = new Set();
+  return keys
+    .map((key) => address?.[key])
+    .filter(Boolean)
+    .filter((value) => {
+      const normalized = normalizeAdminName(value);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
 }
 
 function normalizeVietnamName(value, prefix) {
@@ -383,6 +422,32 @@ function buildPlaceLabel(geoResult, latitude, longitude, accuracy, sourceLabel =
 
 async function buildMergedAdminPlaceLabel(geoResult, latitude, longitude, accuracy) {
   const address = geoResult?.address || {};
+  const displayNameParts = String(geoResult?.display_name || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const wardCandidates = [
+    ...addressParts(address, [
+      "ward",
+      "suburb",
+      "quarter",
+      "neighbourhood",
+      "residential",
+      "city_district",
+      "locality",
+      "municipality",
+      "town",
+      "village",
+      "hamlet",
+      "county",
+      "state_district"
+    ]),
+    ...displayNameParts
+  ];
+  const provinceCandidates = [
+    ...addressParts(address, ["state", "province", "region", "city"]),
+    ...displayNameParts
+  ];
   const rawWard = firstAddressPart(address, [
     "village",
     "town",
@@ -397,15 +462,22 @@ async function buildMergedAdminPlaceLabel(geoResult, latitude, longitude, accura
   const rawProvince = firstAddressPart(address, ["state", "province", "region", "city"]);
   const provinces = await fetchAdminDivisions();
   const wards = flattenAdminWards(provinces);
-  const wardMatch = findAdminNameMatch(wards, rawWard);
-  const provinceMatch = wardMatch?.province || findAdminNameMatch(provinces, rawProvince);
+  const provinceMatch = findBestAdminNameMatch(provinces, provinceCandidates) || findAdminNameMatch(provinces, rawProvince);
+  const provinceWards = provinceMatch?.wards?.length
+    ? provinceMatch.wards.map((ward) => ({ ...ward, province: provinceMatch }))
+    : wards;
+  const wardMatch =
+    findBestAdminNameMatch(provinceWards, wardCandidates) ||
+    findAdminNameMatch(provinceWards, rawWard) ||
+    findBestAdminNameMatch(wards, wardCandidates);
+  const resolvedProvince = wardMatch?.province || provinceMatch;
 
-  if (wardMatch && provinceMatch) {
-    return `${wardMatch.name}, ${provinceMatch.name} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · hành chính mới © provinces.open-api.vn`;
+  if (wardMatch && resolvedProvince) {
+    return `${wardMatch.name}, ${resolvedProvince.name} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · hành chính mới © provinces.open-api.vn`;
   }
 
-  if (provinceMatch) {
-    return `${provinceMatch.name} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · hành chính mới © provinces.open-api.vn`;
+  if (resolvedProvince) {
+    return `${resolvedProvince.name} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · hành chính mới © provinces.open-api.vn`;
   }
 
   return buildPlaceLabel(geoResult, latitude, longitude, accuracy);
