@@ -63,6 +63,8 @@ const bodyInput = document.querySelector("#bodyInput");
 const timeInput = document.querySelector("#timeInput");
 const typeInput = document.querySelector("#typeInput");
 const featuredInput = document.querySelector("#featuredInput");
+const audioRepeatInput = document.querySelector("#audioRepeatInput");
+const audioPlayAtInput = document.querySelector("#audioPlayAtInput");
 const resetButton = document.querySelector("#resetButton");
 const seedButton = document.querySelector("#seedButton");
 const adminList = document.querySelector("#adminList");
@@ -223,7 +225,42 @@ function resetForm() {
   formTitle.textContent = "Tạo thông báo mới";
   form.reset();
   featuredInput.checked = false;
+  setAudioEnabled(false);
+  audioRepeatInput.value = "1";
+  audioPlayAtInput.value = "";
   form.querySelector(".primary-button").textContent = "Đăng thông báo";
+}
+
+function setAudioEnabled(isEnabled) {
+  const value = isEnabled ? "true" : "false";
+  form.querySelectorAll('input[name="audioEnabled"]').forEach((input) => {
+    input.checked = input.value === value;
+  });
+}
+
+function getAudioEnabled() {
+  return form.querySelector('input[name="audioEnabled"]:checked')?.value === "true";
+}
+
+function normalizeAudioRepeat(value) {
+  const count = Number(value);
+  if (!Number.isFinite(count)) return 1;
+  return Math.min(Math.max(Math.round(count), 1), 10);
+}
+
+function toDateTimeLocalValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDateTimeLocalValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
 }
 
 function renderAdminList() {
@@ -245,6 +282,8 @@ function renderAdminList() {
         <div class="item-meta">
           <span class="pill">${typeName(post.type)}</span>
           ${post.featured ? '<span class="pill">Đang ghim</span>' : ""}
+          ${post.audioEnabled ? `<span class="pill">Phát loa ${escapeHtml(String(post.audioRepeatCount || 1))} lần</span>` : ""}
+          ${post.audioEnabled && post.audioPlayAt ? `<span>${escapeHtml(`Phát: ${new Date(post.audioPlayAt).toLocaleString("vi-VN")}`)}</span>` : ""}
           <span>${escapeHtml(post.time || "Không đặt thời gian")}</span>
         </div>
         <div class="item-actions">
@@ -270,6 +309,9 @@ function upsertPost(event) {
   const body = bodyInput.value.trim();
   const time = timeInput.value.trim();
   const type = typeInput.value;
+  const audioEnabled = getAudioEnabled();
+  const audioRepeatCount = normalizeAudioRepeat(audioRepeatInput.value);
+  const audioPlayAt = fromDateTimeLocalValue(audioPlayAtInput.value);
 
   if (!title || !body) return;
 
@@ -285,6 +327,9 @@ function upsertPost(event) {
             time,
             type,
             featured: isFeatured,
+            audioEnabled,
+            audioRepeatCount,
+            audioPlayAt,
             updatedAt: new Date().toISOString()
           }
         : post
@@ -299,6 +344,9 @@ function upsertPost(event) {
         time,
         type,
         featured: isFeatured,
+        audioEnabled,
+        audioRepeatCount,
+        audioPlayAt,
         createdAt: new Date().toISOString()
       },
       ...normalized
@@ -331,6 +379,9 @@ function handleListClick(event) {
     timeInput.value = post.time || "";
     typeInput.value = post.type || "general";
     featuredInput.checked = Boolean(post.featured);
+    setAudioEnabled(Boolean(post.audioEnabled));
+    audioRepeatInput.value = String(post.audioRepeatCount || 1);
+    audioPlayAtInput.value = toDateTimeLocalValue(post.audioPlayAt);
     form.querySelector(".primary-button").textContent = "Lưu thay đổi";
     titleInput.focus();
   }

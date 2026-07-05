@@ -778,6 +778,40 @@ select:focus {
   margin: 6px 0 20px;
 }
 
+.audio-fieldset {
+  display: grid;
+  gap: 14px;
+  margin: 6px 0 20px;
+  padding: 14px;
+  border: 1px solid #d8e0e8;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.audio-fieldset legend {
+  padding: 0 6px;
+  color: #233244;
+  font-weight: 800;
+}
+
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.radio-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 760;
+}
+
+.radio-row input {
+  width: auto;
+}
+
 .switch {
   display: inline-flex;
   align-items: center;

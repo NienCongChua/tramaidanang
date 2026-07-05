@@ -1,6 +1,7 @@
 const STORAGE_KEY = "tram_ai_commune_posts";
 const GEO_CACHE_KEY = "tram_ai_geo_cache";
 const ADMIN_DIVISIONS_CACHE_KEY = "tram_ai_admin_divisions_cache_v2";
+const NOTICE_AUDIO_STATE_KEY = "tram_ai_notice_audio_state";
 const SETTINGS_KEY = "tram_ai_system_settings";
 const ADMIN_DIVISIONS_API_URL = "/api/admin-divisions";
 const DEFAULT_COMMUNE = "X, tỉnh Z";
@@ -143,6 +144,8 @@ let noticeRotationTimer = null;
 let tickerResizeTimer = null;
 let aiIdleCloseTimer = null;
 let aiGoodbyeCloseTimer = null;
+let noticeAudioTimer = null;
+let isNoticeAudioPlaying = false;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -619,6 +622,7 @@ function renderPosts(options = {}) {
 
   scheduleNoticeRotation(rotatingPosts);
   if (!skipTicker) renderTicker(posts);
+  scheduleNoticeAudioPlayback();
 }
 
 function renderTicker(posts) {
@@ -651,6 +655,125 @@ function syncTickerSpeed() {
 function scheduleTickerSpeedSync() {
   window.clearTimeout(tickerResizeTimer);
   tickerResizeTimer = window.setTimeout(syncTickerSpeed, 120);
+}
+
+function loadNoticeAudioState() {
+  try {
+    return JSON.parse(sessionStorage.getItem(NOTICE_AUDIO_STATE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveNoticeAudioState(state) {
+  try {
+    sessionStorage.setItem(NOTICE_AUDIO_STATE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+function noticeAudioSignature(post) {
+  return [
+    post.updatedAt || post.createdAt || "",
+    post.title || "",
+    post.body || "",
+    post.audioEnabled ? "1" : "0",
+    post.audioRepeatCount || 1,
+    post.audioPlayAt || ""
+  ].join("|");
+}
+
+function getNoticeAudioEntry(post, state) {
+  const signature = noticeAudioSignature(post);
+  const current = state[post.id];
+  if (!current || current.signature !== signature) {
+    state[post.id] = { signature, played: 0 };
+  }
+  return state[post.id];
+}
+
+function getNoticeAudioRepeatCount(post) {
+  const count = Number(post.audioRepeatCount || 1);
+  if (!Number.isFinite(count)) return 1;
+  return Math.min(Math.max(Math.round(count), 1), 10);
+}
+
+function getNoticeAudioPlayAt(post) {
+  if (!post.audioPlayAt) return 0;
+  const time = new Date(post.audioPlayAt).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function getNoticeAudioText(post) {
+  return [
+    "Thông báo từ xã.",
+    post.title,
+    post.body,
+    post.time ? `Thời gian: ${post.time}.` : ""
+  ].filter(Boolean).join(" ");
+}
+
+function scheduleNoticeAudioPlayback() {
+  window.clearTimeout(noticeAudioTimer);
+  if (isNoticeAudioPlaying) return;
+
+  const posts = loadPosts().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const state = loadNoticeAudioState();
+  const now = Date.now();
+  let nextPlayAt = Infinity;
+  const duePosts = [];
+
+  for (const post of posts) {
+    if (!post.audioEnabled) continue;
+    const repeatCount = getNoticeAudioRepeatCount(post);
+    const entry = getNoticeAudioEntry(post, state);
+    if (entry.played >= repeatCount) continue;
+
+    const playAt = getNoticeAudioPlayAt(post);
+    if (playAt > now) {
+      nextPlayAt = Math.min(nextPlayAt, playAt);
+      continue;
+    }
+
+    duePosts.push(post);
+  }
+
+  saveNoticeAudioState(state);
+
+  if (duePosts.length) {
+    playNoticeAudioQueue(duePosts);
+    return;
+  }
+
+  if (Number.isFinite(nextPlayAt)) {
+    noticeAudioTimer = window.setTimeout(scheduleNoticeAudioPlayback, Math.max(nextPlayAt - now, 1000));
+  }
+}
+
+async function playNoticeAudioQueue(posts) {
+  if (isNoticeAudioPlaying) return;
+  isNoticeAudioPlaying = true;
+
+  try {
+    for (const post of posts) {
+      const state = loadNoticeAudioState();
+      const entry = getNoticeAudioEntry(post, state);
+      const repeatCount = getNoticeAudioRepeatCount(post);
+
+      while (entry.played < repeatCount) {
+        entry.played += 1;
+        saveNoticeAudioState(state);
+        await speakText(getNoticeAudioText(post), "Đang phát thông báo từ xã", "", {
+          requireLiveMode: false
+        });
+        if (entry.played < repeatCount) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        }
+      }
+    }
+  } finally {
+    isNoticeAudioPlaying = false;
+    scheduleNoticeAudioPlayback();
+  }
 }
 
 function openNoticeModal(post) {
@@ -1817,6 +1940,8 @@ elements.homeRefresh.addEventListener("click", reloadHomeData);
 elements.locationButton.addEventListener("click", loadWeatherFromPosition);
 elements.noticeList.addEventListener("click", handleNoticeClick);
 window.addEventListener("resize", scheduleTickerSpeedSync);
+window.addEventListener("pointerdown", primeTtsPlayback);
+window.addEventListener("keydown", primeTtsPlayback);
 if (document.fonts?.ready) {
   document.fonts.ready.then(syncTickerSpeed).catch(() => {});
 }
@@ -1866,4 +1991,7 @@ setInterval(refreshWeather, 15 * 60 * 1000);
 
 window.addEventListener("storage", (event) => {
   if (event.key === STORAGE_KEY) renderPosts();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) scheduleNoticeAudioPlayback();
 });

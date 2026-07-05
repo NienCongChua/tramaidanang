@@ -87,6 +87,31 @@
               </label>
             </div>
 
+            <fieldset class="audio-fieldset">
+              <legend>Phát âm thanh thông báo</legend>
+              <div class="radio-row">
+                <label>
+                  <input type="radio" name="audioEnabled" value="false" checked />
+                  Không phát
+                </label>
+                <label>
+                  <input type="radio" name="audioEnabled" value="true" />
+                  Phát qua loa
+                </label>
+              </div>
+
+              <div class="form-grid">
+                <label>
+                  Số lần phát
+                  <input id="audioRepeatInput" name="audioRepeat" type="number" min="1" max="10" value="1" />
+                </label>
+                <label>
+                  Thời gian phát
+                  <input id="audioPlayAtInput" name="audioPlayAt" type="datetime-local" />
+                </label>
+              </div>
+            </fieldset>
+
             <div class="form-actions">
               <button class="primary-button" type="submit">Đăng thông báo</button>
               <button class="danger-button" type="button" id="seedButton">Khôi phục dữ liệu mẫu</button>
