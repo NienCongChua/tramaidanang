@@ -9,9 +9,10 @@ const DEFAULT_COORDS = {
 };
 const LOW_ACCURACY_METERS = 3000;
 const LIVE_WELCOME_MESSAGE =
-  "Xin chào bà con, Trợ lý Live đã sẵn sàng. Bà con cứ nói câu hỏi sau tiếng báo, Trợ lý sẽ nghe và trả lời bằng giọng nói.";
+  "Trợ lý Live đã sẵn sàng. Bà con cứ nói câu hỏi, Trợ lý sẽ nghe và trả lời bằng giọng nói.";
 const SILENT_WAV_DATA_URI =
   "data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTAAAAAA";
+const TTS_REQUEST_TIMEOUT_MS = 6500;
 const NOTICE_TOTAL_VISIBLE = 4;
 const NOTICE_ROTATE_INTERVAL_MS = 5000;
 const TICKER_PIXELS_PER_SECOND = 52;
@@ -995,6 +996,7 @@ async function startLiveMode() {
   }
   setChatStatus("Live đang khởi động", "speaking");
   setLiveStatus("Live đã bật. Trợ lý đang kiểm tra quyền micro...");
+  const welcomePromise = speakLiveWelcome();
   const hasMicrophonePermission = await ensureMicrophonePermission();
   if (!isLiveMode) return;
   if (!hasMicrophonePermission) {
@@ -1003,8 +1005,7 @@ async function startLiveMode() {
     return;
   }
 
-  setLiveStatus("Trợ lý sẽ chào bà con trước khi mở micro.");
-  await speakLiveWelcome();
+  await welcomePromise;
   if (!isLiveMode) return;
   setChatStatus("Đang nghe bà con nói", "listening");
   setLiveStatus("Micro đã mở. Bà con cứ nói câu hỏi, Trợ lý sẽ tự gửi khi bà con nói xong.");
@@ -1048,9 +1049,12 @@ function speechText(value) {
 function getVietnameseVoice() {
   if (!canUseSpeechSynthesis()) return null;
   const voices = window.speechSynthesis.getVoices();
+  const vietnameseVoices = voices.filter((voice) => voice.lang?.toLowerCase().startsWith("vi"));
   return (
-    voices.find((voice) => voice.lang?.toLowerCase() === "vi-vn") ||
-    voices.find((voice) => voice.lang?.toLowerCase().startsWith("vi")) ||
+    vietnameseVoices.find((voice) => voice.lang?.toLowerCase() === "vi-vn" && voice.localService) ||
+    vietnameseVoices.find((voice) => voice.lang?.toLowerCase() === "vi-vn") ||
+    vietnameseVoices.find((voice) => /vietnam|hoai|nam|linh|mai/i.test(voice.name)) ||
+    vietnameseVoices[0] ||
     null
   );
 }
@@ -1236,13 +1240,21 @@ function handleSpeechPlaybackFailure(message = "Không thể phát giọng nói 
 }
 
 async function requestTtsAudioBlob(text) {
-  const response = await fetch("/api/tts", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ text })
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), TTS_REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch("/api/tts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text }),
+      signal: controller.signal
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -1357,8 +1369,6 @@ async function speakText(text, statusMessage, liveMessage, options = {}) {
   setChatStatus(statusMessage, "speaking");
   if (liveMessage) setLiveStatus(liveMessage);
 
-  await new Promise((resolve) => window.setTimeout(resolve, 160));
-
   try {
     const audioBlob = await requestTtsAudioBlob(cleanText);
     if (requireLiveMode && !isLiveMode) return;
@@ -1400,7 +1410,7 @@ function speakLiveWelcome() {
   return speakText(
     LIVE_WELCOME_MESSAGE,
     "Trợ lý đang chào bà con",
-    "Trợ lý đang đọc câu chào, sau đó micro sẽ tự mở.",
+    "Trợ lý đang đọc câu chào...",
     { requireLiveMode: true }
   );
 }
