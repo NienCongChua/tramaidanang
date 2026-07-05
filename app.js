@@ -12,6 +12,9 @@ const LIVE_WELCOME_MESSAGE =
   "Xin chào bà con, Trợ lý Live đã sẵn sàng. Bà con cứ nói câu hỏi sau tiếng báo, Trợ lý sẽ nghe và trả lời bằng giọng nói.";
 const SILENT_WAV_DATA_URI =
   "data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTAAAAAA";
+const NOTICE_TOTAL_VISIBLE = 4;
+const NOTICE_ROTATE_INTERVAL_MS = 5000;
+const TICKER_PIXELS_PER_SECOND = 52;
 
 const defaultSettings = {
   smsPhone: "0912345678",
@@ -129,6 +132,9 @@ let ttsAudioPlayer = null;
 let ttsAudioUrl = "";
 let isAudioPlaybackPrimed = false;
 let hasPendingAudioPriming = false;
+let noticeRotationIndex = 0;
+let noticeRotationTimer = null;
+let tickerResizeTimer = null;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -329,12 +335,40 @@ function renderWeather(data) {
     .join("");
 }
 
-function renderPosts() {
+function rotatingWindow(items, count, startIndex) {
+  if (items.length <= count) return items;
+  return Array.from({ length: count }, (_, index) => items[(startIndex + index) % items.length]);
+}
+
+function stopNoticeRotation() {
+  window.clearInterval(noticeRotationTimer);
+  noticeRotationTimer = null;
+}
+
+function scheduleNoticeRotation(rotatingPosts) {
+  stopNoticeRotation();
+  if (rotatingPosts.length <= NOTICE_TOTAL_VISIBLE - 1) {
+    noticeRotationIndex = 0;
+    return;
+  }
+
+  noticeRotationTimer = window.setInterval(() => {
+    noticeRotationIndex = (noticeRotationIndex + 1) % rotatingPosts.length;
+    renderPosts({ skipTicker: true, isRotation: true });
+  }, NOTICE_ROTATE_INTERVAL_MS);
+}
+
+function renderPosts(options = {}) {
+  const { skipTicker = false, isRotation = false } = options;
   const posts = loadPosts().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const featured = posts.find((post) => post.featured) || posts[0];
-  const others = posts.filter((post) => post.id !== featured?.id).slice(0, 5);
+  const rotatingPosts = posts.filter((post) => post.id !== featured?.id);
+  const otherVisibleCount = NOTICE_TOTAL_VISIBLE - 1;
+  if (noticeRotationIndex >= rotatingPosts.length) noticeRotationIndex = 0;
+  const others = rotatingWindow(rotatingPosts, otherVisibleCount, noticeRotationIndex);
 
   if (!featured) {
+    stopNoticeRotation();
     elements.featured.innerHTML = `
       <div class="badge">Thông báo mới</div>
       <h3>Chưa có thông báo</h3>
@@ -342,6 +376,7 @@ function renderPosts() {
       <footer>UBND xã ${DEFAULT_COMMUNE}</footer>
     `;
     elements.noticeList.innerHTML = `<div class="empty-state">Chưa có thông báo khác</div>`;
+    if (!skipTicker) renderTicker([]);
     return;
   }
 
@@ -354,8 +389,10 @@ function renderPosts() {
     <footer>UBND xã ${DEFAULT_COMMUNE}</footer>
   `;
 
-  elements.noticeList.innerHTML = others
-    .map((post) => {
+  elements.noticeList.classList.toggle("is-rotating", isRotation);
+  elements.noticeList.innerHTML = others.length
+    ? others
+      .map((post) => {
       const [icon, typeClass] = iconClass(post.type);
       return `
         <button class="notice-item" type="button" data-notice-id="${escapeHtml(post.id)}">
@@ -367,10 +404,12 @@ function renderPosts() {
           <span class="notice-arrow" aria-hidden="true">›</span>
         </button>
       `;
-    })
-    .join("");
+      })
+      .join("")
+    : `<div class="empty-state">Chưa có thông báo khác</div>`;
 
-  renderTicker(posts);
+  scheduleNoticeRotation(rotatingPosts);
+  if (!skipTicker) renderTicker(posts);
 }
 
 function renderTicker(posts) {
@@ -385,6 +424,24 @@ function renderTicker(posts) {
       <span aria-hidden="true">${tickerText}</span>
     </span>
   `;
+  syncTickerSpeed();
+}
+
+function syncTickerSpeed() {
+  const track = elements.ticker.querySelector(".ticker-track");
+  const firstText = track?.querySelector("span");
+  if (!track || !firstText) return;
+
+  window.requestAnimationFrame(() => {
+    const distance = firstText.getBoundingClientRect().width + 34;
+    const duration = Math.max(24, distance / TICKER_PIXELS_PER_SECOND);
+    track.style.setProperty("--ticker-duration", `${duration.toFixed(2)}s`);
+  });
+}
+
+function scheduleTickerSpeedSync() {
+  window.clearTimeout(tickerResizeTimer);
+  tickerResizeTimer = window.setTimeout(syncTickerSpeed, 120);
 }
 
 function openNoticeModal(post) {
@@ -1488,6 +1545,10 @@ loadWeatherFromPosition();
 elements.homeRefresh.addEventListener("click", reloadHomeData);
 elements.locationButton.addEventListener("click", loadWeatherFromPosition);
 elements.noticeList.addEventListener("click", handleNoticeClick);
+window.addEventListener("resize", scheduleTickerSpeedSync);
+if (document.fonts?.ready) {
+  document.fonts.ready.then(syncTickerSpeed).catch(() => {});
+}
 modal.closeButton.addEventListener("click", closeNoticeModal);
 modal.root.addEventListener("click", (event) => {
   if (event.target === modal.root) closeNoticeModal();

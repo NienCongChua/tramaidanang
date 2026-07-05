@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const DEFAULT_TTS_MODEL = "gemini-3.1-flash-tts-preview";
-const DEFAULT_TTS_VOICE = "Kore";
+const DEFAULT_TTS_VOICE = "Aoede";
 const WAV_SAMPLE_RATE = 24000;
 const WAV_CHANNELS = 1;
 const WAV_BIT_DEPTH = 16;
@@ -91,8 +91,9 @@ module.exports = async function handler(req, res) {
 
 function buildTtsPrompt(text) {
   return [
-    "Read the following Vietnamese text naturally in a warm, clear, helpful voice.",
-    "Speak at a moderate pace and recite the text faithfully.",
+    "Hãy đọc nguyên văn nội dung sau bằng tiếng Việt.",
+    "Dùng giọng Việt Nam tự nhiên, rõ dấu, ấm áp, dễ nghe, không pha giọng nước ngoài.",
+    "Tốc độ vừa phải, không thêm lời dẫn, không tự sửa hoặc diễn giải nội dung.",
     "",
     text
   ].join("\n");
