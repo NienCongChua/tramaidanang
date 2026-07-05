@@ -880,7 +880,7 @@ function resetAiIdleCloseTimer() {
   window.clearTimeout(aiIdleCloseTimer);
   if (aiModal.root.hidden || isAiResponding) return;
   aiIdleCloseTimer = window.setTimeout(() => {
-    if (!aiModal.root.hidden && !isAiResponding && !isListening) {
+    if (!aiModal.root.hidden && !isAiResponding) {
       closeAiChatModal();
     }
   }, AI_IDLE_CLOSE_MS);
@@ -1085,6 +1085,7 @@ function initVoiceInput() {
   });
 
   speechRecognition.addEventListener("result", (event) => {
+    resetAiIdleCloseTimer();
     const recognized = captureVoiceResult(event);
     const recognizedText = recognized.text;
     if (!recognizedText) return;
@@ -1185,6 +1186,7 @@ async function toggleVoiceInput() {
 
 function startLiveRecognition() {
   if (!speechRecognition || !isLiveMode || isListening || isAiResponding) return;
+  resetAiIdleCloseTimer();
   voiceMode = "live";
   shouldRestartLiveRecognition = true;
   liveFinalText = "";
