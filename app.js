@@ -1,6 +1,8 @@
 const STORAGE_KEY = "tram_ai_commune_posts";
 const GEO_CACHE_KEY = "tram_ai_geo_cache";
+const ADMIN_DIVISIONS_CACHE_KEY = "tram_ai_admin_divisions_cache_v2";
 const SETTINGS_KEY = "tram_ai_system_settings";
+const ADMIN_DIVISIONS_API_URL = "/api/admin-divisions";
 const DEFAULT_COMMUNE = "X, tỉnh Z";
 const DEFAULT_COORDS = {
   latitude: 19.3833,
@@ -10,9 +12,12 @@ const DEFAULT_COORDS = {
 const LOW_ACCURACY_METERS = 3000;
 const LIVE_WELCOME_MESSAGE =
   "Trợ lý Live đã sẵn sàng. Bà con cứ nói câu hỏi, Trợ lý sẽ nghe và trả lời bằng giọng nói.";
+const AI_GOODBYE_MESSAGE = "Trợ lý xin chào bà con. Khi nào cần hỗ trợ, bà con cứ mở lại Trợ lý nhé.";
 const SILENT_WAV_DATA_URI =
   "data:audio/wav;base64,UklGRlQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YTAAAAAA";
 const TTS_REQUEST_TIMEOUT_MS = 6500;
+const AI_IDLE_CLOSE_MS = 15000;
+const AI_GOODBYE_CLOSE_MS = 3500;
 const NOTICE_TOTAL_VISIBLE = 4;
 const NOTICE_ROTATE_INTERVAL_MS = 5000;
 const TICKER_PIXELS_PER_SECOND = 52;
@@ -136,6 +141,8 @@ let hasPendingAudioPriming = false;
 let noticeRotationIndex = 0;
 let noticeRotationTimer = null;
 let tickerResizeTimer = null;
+let aiIdleCloseTimer = null;
+let aiGoodbyeCloseTimer = null;
 
 function ensureSeedPosts() {
   if (!localStorage.getItem(STORAGE_KEY)) {
@@ -167,6 +174,9 @@ function updateClock() {
 }
 
 function weatherCodeLabel(code, isDay = true) {
+  const numericCode = Number(code);
+  if (!Number.isFinite(numericCode)) return [isDay ? "🌤️" : "☁️", "Đang cập nhật"];
+  code = numericCode;
   if (code >= 200 && code < 300) return ["⛈️", "Dông, mưa lớn"];
   if (code >= 300 && code < 400) return ["🌦️", "Mưa phùn"];
   if (code >= 500 && code < 600) return ["🌧️", "Mưa"];
@@ -183,6 +193,21 @@ function weatherCodeLabel(code, isDay = true) {
   if ([71, 73, 75, 77, 85, 86].includes(code)) return ["🌨️", "Mưa tuyết"];
   if ([95, 96, 99].includes(code)) return ["⛈️", "Dông, mưa lớn"];
   return ["🌦️", "Thời tiết thay đổi"];
+}
+
+function openWeatherIconSymbol(icon, fallbackCode, isDay = true) {
+  const iconId = String(icon || "").slice(0, 2);
+  return {
+    "01": isDay ? "☀️" : "🌙",
+    "02": isDay ? "⛅" : "☁️",
+    "03": "☁️",
+    "04": "☁️",
+    "09": "🌧️",
+    "10": "🌦️",
+    "11": "⛈️",
+    "13": "🌨️",
+    "50": "🌫️"
+  }[iconId] || weatherCodeLabel(fallbackCode, isDay)[0];
 }
 
 function iconClass(type) {
@@ -257,6 +282,67 @@ function saveGeoCache(cache) {
   sessionStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache));
 }
 
+function normalizeAdminName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/\b(tinh|thanh pho|tp|quan|huyen|thi xa|thi tran|phuong|xa)\b/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function loadAdminDivisionsCache() {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(ADMIN_DIVISIONS_CACHE_KEY));
+    if (cached?.savedAt && Date.now() - cached.savedAt < 24 * 60 * 60 * 1000 && Array.isArray(cached.data)) {
+      return cached.data;
+    }
+  } catch {}
+  return null;
+}
+
+function saveAdminDivisionsCache(data) {
+  try {
+    sessionStorage.setItem(ADMIN_DIVISIONS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data }));
+  } catch {}
+}
+
+async function fetchAdminDivisions() {
+  const cached = loadAdminDivisionsCache();
+  if (cached) return cached;
+
+  const response = await fetch(ADMIN_DIVISIONS_API_URL);
+  if (!response.ok) throw new Error("Không lấy được dữ liệu hành chính mới");
+  const data = await response.json();
+  if (!Array.isArray(data)) throw new Error("Dữ liệu hành chính mới không hợp lệ");
+  saveAdminDivisionsCache(data);
+  return data;
+}
+
+function findAdminNameMatch(items, value) {
+  const normalized = normalizeAdminName(value);
+  if (!normalized) return null;
+  return items.find((item) => normalizeAdminName(item.name) === normalized) ||
+    items.find((item) => {
+      const itemName = normalizeAdminName(item.name);
+      return itemName && (itemName.includes(normalized) || normalized.includes(itemName));
+    }) ||
+    null;
+}
+
+function flattenAdminWards(provinces) {
+  return provinces.flatMap((province) =>
+    (province.wards || []).map((ward) => ({
+      ...ward,
+      province
+    }))
+  );
+}
+
 function firstAddressPart(address, keys) {
   return keys.map((key) => address?.[key]).find(Boolean) || "";
 }
@@ -295,6 +381,42 @@ function buildPlaceLabel(geoResult, latitude, longitude, accuracy, sourceLabel =
   return `${placeText} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · địa danh © OpenStreetMap`;
 }
 
+async function buildMergedAdminPlaceLabel(geoResult, latitude, longitude, accuracy) {
+  const address = geoResult?.address || {};
+  const rawWard = firstAddressPart(address, [
+    "village",
+    "town",
+    "municipality",
+    "suburb",
+    "quarter",
+    "neighbourhood",
+    "hamlet",
+    "city_district",
+    "locality"
+  ]);
+  const rawProvince = firstAddressPart(address, ["state", "province", "region", "city"]);
+  const provinces = await fetchAdminDivisions();
+  const wards = flattenAdminWards(provinces);
+  const wardMatch = findAdminNameMatch(wards, rawWard);
+  const provinceMatch = wardMatch?.province || findAdminNameMatch(provinces, rawProvince);
+
+  if (wardMatch && provinceMatch) {
+    return `${wardMatch.name}, ${provinceMatch.name} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · hành chính mới © provinces.open-api.vn`;
+  }
+
+  if (provinceMatch) {
+    return `${provinceMatch.name} · sai số khoảng ${formatAccuracy(accuracy)} · ${latitude.toFixed(4)}, ${longitude.toFixed(4)} · hành chính mới © provinces.open-api.vn`;
+  }
+
+  return buildPlaceLabel(geoResult, latitude, longitude, accuracy);
+}
+
+function stripLocationAttribution(value) {
+  return String(value || "")
+    .replace(" · địa danh © OpenStreetMap", "")
+    .replace(" · hành chính mới © provinces.open-api.vn", "");
+}
+
 async function reverseGeocode(latitude, longitude) {
   const cacheKey = geoCacheKey(latitude, longitude);
   const cache = loadGeoCache();
@@ -319,7 +441,7 @@ async function reverseGeocode(latitude, longitude) {
 
 function renderWeather(data) {
   const [icon, label] = weatherCodeLabel(data.current.code, data.current.isDay);
-  elements.icon.textContent = icon;
+  elements.icon.textContent = openWeatherIconSymbol(data.current.icon, data.current.code, data.current.isDay) || icon;
   elements.condition.textContent = sentenceCase(data.current.label || label);
   elements.temperature.textContent = `${Math.round(data.current.temperature)}°C`;
   elements.humidity.textContent = `${Math.round(data.current.humidity)}%`;
@@ -335,9 +457,9 @@ function renderWeather(data) {
       return `
         <article class="forecast-day">
           <time>${date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}</time>
-          <span aria-hidden="true">${dayIcon}</span>
+          <span aria-hidden="true">${openWeatherIconSymbol(day.icon, day.code, true) || dayIcon}</span>
           <strong>${Math.round(day.max)}°C / ${Math.round(day.min)}°C</strong>
-          <p>${dayLabel}</p>
+          <p>${sentenceCase(day.label || dayLabel)}</p>
         </article>
       `;
     })
@@ -532,7 +654,7 @@ async function loadWeatherFromPosition() {
     let placeLabel = "";
     try {
       const geoResult = await reverseGeocode(latitude, longitude);
-      placeLabel = buildPlaceLabel(geoResult, latitude, longitude, accuracy);
+      placeLabel = await buildMergedAdminPlaceLabel(geoResult, latitude, longitude, accuracy);
     } catch {
       placeLabel = `${latitude.toFixed(4)}, ${longitude.toFixed(4)} · sai số khoảng ${formatAccuracy(accuracy)}`;
     }
@@ -607,7 +729,7 @@ function handleSMSButtonClick() {
   let messageBody = template;
   if (settings.smsAttachLocation !== false) {
     let locationText = elements.location.textContent || "";
-    locationText = locationText.replace(" · địa danh © OpenStreetMap", "");
+    locationText = stripLocationAttribution(locationText);
     messageBody = `${template}\n📍 Vị trí: ${locationText}`;
   }
   
@@ -617,19 +739,79 @@ function handleSMSButtonClick() {
 
 let aiChatHistory = [];
 
+const aiTools = {
+  async endConversation(userInput) {
+    setChatStatus("Trợ lý đang kết thúc cuộc trò chuyện", "speaking");
+    setLiveStatus("Trợ lý đang chào bà con...");
+    appendChatBubble(AI_GOODBYE_MESSAGE, "assistant", { format: "assistant" });
+    aiChatHistory.push({ role: "user", parts: [{ text: userInput }] });
+    aiChatHistory.push({ role: "model", parts: [{ text: AI_GOODBYE_MESSAGE }] });
+    window.clearTimeout(aiGoodbyeCloseTimer);
+    aiGoodbyeCloseTimer = window.setTimeout(closeAiChatModal, AI_GOODBYE_CLOSE_MS);
+    await Promise.race([
+      speakAssistantResponse(AI_GOODBYE_MESSAGE),
+      new Promise((resolve) => window.setTimeout(resolve, AI_GOODBYE_CLOSE_MS - 300))
+    ]);
+    closeAiChatModal();
+  }
+};
+
+function normalizeIntentText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveAiTool(userInput) {
+  const text = normalizeIntentText(userInput);
+  if (!text) return null;
+
+  const wantsEnd =
+    /\b(ket thuc|tam biet|bye|goodbye|thoat|dong|dong lai|tat|dung lai|ngung|nghi)\b/.test(text) &&
+    /\b(cuoc tro chuyen|tro chuyen|chat|popup|hop thoai|ai|tro ly|noi chuyen)\b/.test(text);
+  const shortGoodbye = /^(tam biet|bye|goodbye|ket thuc|thoat|dong|tat|dong chat|dong ai|tat ai|ngung tro chuyen)$/.test(text);
+
+  if (wantsEnd || shortGoodbye) {
+    return aiTools.endConversation;
+  }
+
+  return null;
+}
+
 function openAiChatModal() {
   primeTtsPlayback();
   aiModal.root.hidden = false;
   document.body.classList.add("modal-open");
   aiModal.input.focus();
   scrollToBottom();
+  resetAiIdleCloseTimer();
 }
 
 function closeAiChatModal() {
+  window.clearTimeout(aiIdleCloseTimer);
+  window.clearTimeout(aiGoodbyeCloseTimer);
+  aiIdleCloseTimer = null;
+  aiGoodbyeCloseTimer = null;
   stopLiveMode();
   stopVoiceInput();
   aiModal.root.hidden = true;
   document.body.classList.remove("modal-open");
+}
+
+function resetAiIdleCloseTimer() {
+  window.clearTimeout(aiIdleCloseTimer);
+  if (aiModal.root.hidden || isAiResponding) return;
+  aiIdleCloseTimer = window.setTimeout(() => {
+    if (!aiModal.root.hidden && !isAiResponding && !isListening) {
+      closeAiChatModal();
+    }
+  }, AI_IDLE_CLOSE_MS);
 }
 
 function scrollToBottom() {
@@ -1412,7 +1594,7 @@ async function callGemini(userInput) {
     .map((p) => `- [${typeName(p.type)}] ${p.title}: ${p.body} (${p.time || "không rõ thời gian"})`)
     .join("\n");
   
-  const locationLabel = elements.location.textContent || "Không rõ";
+  const locationLabel = stripLocationAttribution(elements.location.textContent || "Không rõ");
   const weatherTemp = elements.temperature.textContent || "--°C";
   const weatherCond = elements.condition.textContent || "Đang cập nhật";
   const weatherHum = elements.humidity.textContent || "--%";
@@ -1424,7 +1606,7 @@ Nhiệm vụ của bạn là giúp đỡ người dân bản địa giải đáp
 Hãy sử dụng ngôn từ dễ hiểu, ngắn gọn, ấm áp, gần gũi với bà con vùng cao.
 
 Thông tin ngữ cảnh tại Trạm AI (dùng thông tin này để trả lời chính xác):
-- Vị trí của trạm/người dân: ${locationLabel.replace(" · địa danh © OpenStreetMap", "")}
+- Vị trí của trạm/người dân: ${locationLabel}
 - Thời tiết hiện tại: Nhiệt độ: ${weatherTemp}, Trạng thái: ${weatherCond}, Độ ẩm: ${weatherHum}, Gió: ${weatherWind}, Khả năng mưa: ${weatherRain}
 - Danh sách thông báo chính thức từ Ủy ban nhân dân (UBND) xã:
 ${activeNotices || "Hiện chưa có thông báo mới nào từ xã."}
@@ -1475,6 +1657,7 @@ async function handleAiSubmit(event, options = {}) {
   if (event) event.preventDefault();
   primeTtsPlayback();
   if (isAiResponding) return;
+  window.clearTimeout(aiIdleCloseTimer);
   isAiResponding = true;
   shouldRestartLiveRecognition = false;
   stopVoiceInput();
@@ -1490,6 +1673,20 @@ async function handleAiSubmit(event, options = {}) {
   
   aiModal.input.value = "";
   appendChatBubble(userInput, "user");
+
+  const aiTool = resolveAiTool(userInput);
+  if (aiTool) {
+    try {
+      await aiTool(userInput);
+    } catch (error) {
+      console.error("[Trạm AI] Không chạy được AI tool:", error);
+      closeAiChatModal();
+    } finally {
+      isAiResponding = false;
+    }
+    return;
+  }
+
   if (options.fromLive) {
     setChatStatus("Đang gửi câu hỏi", "thinking");
     setLiveStatus("Đã nghe câu hỏi. Trợ lý đang chuẩn bị trả lời...");
@@ -1523,6 +1720,7 @@ async function handleAiSubmit(event, options = {}) {
     } else {
       setChatStatus("Sẵn sàng hỗ trợ bà con");
     }
+    resetAiIdleCloseTimer();
   }
 }
 
@@ -1562,6 +1760,9 @@ aiModal.closeButton.addEventListener("click", closeAiChatModal);
 aiModal.root.addEventListener("click", (event) => {
   if (event.target === aiModal.root) closeAiChatModal();
 });
+aiModal.root.addEventListener("pointerdown", resetAiIdleCloseTimer);
+aiModal.root.addEventListener("keydown", resetAiIdleCloseTimer);
+aiModal.input.addEventListener("input", resetAiIdleCloseTimer);
 aiModal.form.addEventListener("submit", handleAiSubmit);
 if (aiModal.voiceButton) {
   initVoiceInput();

@@ -3,7 +3,6 @@ const path = require("node:path");
 
 const OPENWEATHER_BASE_URL = "https://api.openweathermap.org/data/2.5";
 const DEFAULT_TIMEOUT_MS = 10000;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 loadEnvFile();
 
@@ -102,7 +101,8 @@ function summarizeDailyForecast(items, timezoneOffset) {
         max: Number.NEGATIVE_INFINITY,
         min: Number.POSITIVE_INFINITY,
         rain: 0,
-        codeCounts: new Map()
+        codeCounts: new Map(),
+        representative: null
       });
     }
 
@@ -113,6 +113,9 @@ function summarizeDailyForecast(items, timezoneOffset) {
 
     const code = item.weather?.[0]?.id ?? 800;
     day.codeCounts.set(code, (day.codeCounts.get(code) || 0) + 1);
+    if (isBetterRepresentativeForecast(item, day.representative, timezoneOffset)) {
+      day.representative = item;
+    }
   }
 
   return Array.from(days.values())
@@ -122,8 +125,20 @@ function summarizeDailyForecast(items, timezoneOffset) {
       max: Number.isFinite(day.max) ? day.max : 0,
       min: Number.isFinite(day.min) ? day.min : 0,
       rain: day.rain,
-      code: mostFrequentWeatherCode(day.codeCounts)
+      code: day.representative?.weather?.[0]?.id ?? mostFrequentWeatherCode(day.codeCounts),
+      icon: day.representative?.weather?.[0]?.icon || "",
+      label: day.representative?.weather?.[0]?.description || ""
     }));
+}
+
+function isBetterRepresentativeForecast(next, current, timezoneOffset) {
+  if (!current) return true;
+  const nextHour = localHour(next.dt, timezoneOffset);
+  const currentHour = localHour(current.dt, timezoneOffset);
+  const nextDistance = Math.abs(nextHour - 12);
+  const currentDistance = Math.abs(currentHour - 12);
+  if (nextDistance !== currentDistance) return nextDistance < currentDistance;
+  return (next.pop ?? 0) > (current.pop ?? 0);
 }
 
 function mostFrequentWeatherCode(codeCounts) {
@@ -140,6 +155,10 @@ function mostFrequentWeatherCode(codeCounts) {
 
 function localDateKey(unixSeconds, timezoneOffset) {
   return new Date((Number(unixSeconds) + timezoneOffset) * 1000).toISOString().slice(0, 10);
+}
+
+function localHour(unixSeconds, timezoneOffset) {
+  return Number(new Date((Number(unixSeconds) + timezoneOffset) * 1000).toISOString().slice(11, 13));
 }
 
 function unixToIso(unixSeconds) {
