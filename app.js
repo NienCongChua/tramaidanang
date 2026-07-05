@@ -167,6 +167,14 @@ function updateClock() {
 }
 
 function weatherCodeLabel(code, isDay = true) {
+  if (code >= 200 && code < 300) return ["⛈️", "Dông, mưa lớn"];
+  if (code >= 300 && code < 400) return ["🌦️", "Mưa phùn"];
+  if (code >= 500 && code < 600) return ["🌧️", "Mưa"];
+  if (code >= 600 && code < 700) return ["🌨️", "Mưa tuyết"];
+  if (code >= 700 && code < 800) return ["🌫️", "Sương mù"];
+  if (code === 800) return [isDay ? "☀️" : "🌙", "Trời quang"];
+  if ([801, 802].includes(code)) return [isDay ? "⛅" : "☁️", "Có mây"];
+  if ([803, 804].includes(code)) return ["☁️", "Nhiều mây"];
   if ([0].includes(code)) return [isDay ? "☀️" : "🌙", "Trời quang"];
   if ([1, 2].includes(code)) return [isDay ? "⛅" : "☁️", "Có mây"];
   if ([3, 45, 48].includes(code)) return ["☁️", "Nhiều mây"];
@@ -312,12 +320,12 @@ async function reverseGeocode(latitude, longitude) {
 function renderWeather(data) {
   const [icon, label] = weatherCodeLabel(data.current.code, data.current.isDay);
   elements.icon.textContent = icon;
-  elements.condition.textContent = label;
+  elements.condition.textContent = sentenceCase(data.current.label || label);
   elements.temperature.textContent = `${Math.round(data.current.temperature)}°C`;
   elements.humidity.textContent = `${Math.round(data.current.humidity)}%`;
   elements.wind.textContent = `${Math.round(data.current.wind)} km/h`;
   elements.rain.textContent = `${Math.round(data.current.rain)}%`;
-  elements.weatherUpdated.textContent = `Cập nhật thật: ${formatTime(new Date(data.current.time))}`;
+  elements.weatherUpdated.textContent = `OpenWeather: ${formatTime(new Date(data.current.time))}`;
 
   elements.forecast.innerHTML = data.daily
     .slice(0, 3)
@@ -334,6 +342,12 @@ function renderWeather(data) {
       `;
     })
     .join("");
+}
+
+function sentenceCase(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.charAt(0).toLocaleUpperCase("vi-VN") + text.slice(1);
 }
 
 function rotatingWindow(items, count, startIndex) {
@@ -493,39 +507,14 @@ function getCurrentPosition() {
 
 async function fetchWeather(latitude, longitude) {
   const params = new URLSearchParams({
-    latitude: latitude.toFixed(5),
-    longitude: longitude.toFixed(5),
-    current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-    daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max",
-    timezone: "auto",
-    forecast_days: "4",
-    wind_speed_unit: "kmh",
-    temperature_unit: "celsius",
-    precipitation_unit: "mm"
+    lat: latitude.toFixed(5),
+    lon: longitude.toFixed(5)
   });
 
-  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
-  if (!response.ok) throw new Error("Không lấy được dữ liệu thời tiết");
-  const json = await response.json();
-
-  return {
-    current: {
-      time: json.current.time,
-      temperature: json.current.temperature_2m,
-      humidity: json.current.relative_humidity_2m,
-      wind: json.current.wind_speed_10m,
-      rain: json.daily.precipitation_probability_max?.[0] ?? 0,
-      code: json.current.weather_code,
-      isDay: json.current.is_day === 1
-    },
-    daily: json.daily.time.slice(1, 4).map((date, index) => ({
-      date,
-      max: json.daily.temperature_2m_max[index + 1],
-      min: json.daily.temperature_2m_min[index + 1],
-      rain: json.daily.precipitation_probability_max[index + 1],
-      code: json.daily.weather_code[index + 1]
-    }))
-  };
+  const response = await fetch(`/api/weather?${params.toString()}`);
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(json.error || "Không lấy được dữ liệu thời tiết từ OpenWeather");
+  return json;
 }
 
 async function loadWeatherFromPosition() {
@@ -564,7 +553,7 @@ async function loadWeatherFromPosition() {
       );
     }
 
-    setWeatherLoading("Đang tải thời tiết thật...");
+    setWeatherLoading("Đang tải thời tiết OpenWeather...");
     const weather = await fetchWeather(latitude, longitude);
     renderWeather(weather);
   } catch (error) {
