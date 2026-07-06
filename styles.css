@@ -255,13 +255,26 @@ a {
   white-space: nowrap;
 }
 
+.weather-card .panel-heading {
+  padding: 18px 26px 10px;
+}
+
+.weather-card .panel-heading h2,
+.weather-card .forecast-block h3 {
+  font-size: clamp(1.35rem, 1.2rem + 0.75vw, 1.85rem);
+}
+
+.weather-card .panel-heading span {
+  font-size: clamp(1.04rem, 0.98rem + 0.3vw, 1.24rem);
+}
+
 .weather-hero {
   position: relative;
-  min-height: 180px;
+  min-height: clamp(230px, 31vh, 360px);
   display: grid;
   grid-template-columns: 0.85fr 1fr;
   align-items: center;
-  padding: 8px 34px 14px;
+  padding: 18px 42px 24px;
   overflow: hidden;
 }
 
@@ -274,7 +287,7 @@ a {
   position: absolute;
   inset: auto 0 0;
   width: 100%;
-  height: 145px;
+  height: 68%;
   object-fit: cover;
   opacity: 0.45;
 }
@@ -282,7 +295,7 @@ a {
 .weather-icon {
   position: relative;
   z-index: 1;
-  font-size: clamp(5.4rem, 4.7rem + 3vw, 9rem);
+  font-size: clamp(7.2rem, 5.2rem + 5vw, 12rem);
   filter: drop-shadow(0 14px 20px rgba(0, 0, 0, 0.25));
 }
 
@@ -293,15 +306,15 @@ a {
 
 .temperature strong {
   display: block;
-  font-size: clamp(4.2rem, 3.45rem + 3.2vw, 7.2rem);
+  font-size: clamp(5.6rem, 4rem + 5.2vw, 10.5rem);
   line-height: 0.95;
   letter-spacing: 0;
 }
 
 .temperature span {
   display: block;
-  margin-top: 12px;
-  font-size: clamp(1.35rem, 1.12rem + 0.95vw, 2rem);
+  margin-top: 16px;
+  font-size: clamp(1.7rem, 1.25rem + 1.35vw, 2.65rem);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -316,9 +329,9 @@ a {
 .weather-stats div {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 3px 12px;
+  gap: 6px 14px;
   align-items: center;
-  padding: 12px 20px;
+  padding: 18px 24px;
   min-width: 0;
 }
 
@@ -328,16 +341,16 @@ a {
 
 .stat-icon {
   grid-row: span 2;
-  font-size: 2rem;
+  font-size: clamp(2.35rem, 1.9rem + 1vw, 3.15rem);
 }
 
 .weather-stats small {
   color: rgba(255, 255, 255, 0.72);
-  font-size: 1rem;
+  font-size: clamp(1.12rem, 1rem + 0.45vw, 1.42rem);
 }
 
 .weather-stats strong {
-  font-size: clamp(1.22rem, 1.08rem + 0.55vw, 1.6rem);
+  font-size: clamp(1.55rem, 1.18rem + 1vw, 2.3rem);
   overflow-wrap: anywhere;
 }
 
@@ -350,20 +363,24 @@ a {
   min-height: 0;
 }
 
+.weather-card .forecast-block {
+  padding: 18px 26px 20px;
+}
+
 .forecast-list {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   align-items: stretch;
   flex: 1 1 auto;
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 .forecast-day {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   place-items: center;
-  min-height: 145px;
-  padding: 6px 10px;
+  min-height: clamp(165px, 21vh, 250px);
+  padding: 12px 14px;
   text-align: center;
 }
 
@@ -377,22 +394,22 @@ a {
 
 .forecast-day time {
   font-weight: 700;
-  font-size: 1.08rem;
+  font-size: clamp(1.18rem, 1.02rem + 0.55vw, 1.55rem);
 }
 
 .forecast-day span {
-  font-size: 2.8rem;
+  font-size: clamp(3.15rem, 2.4rem + 1.8vw, 4.7rem);
 }
 
 .forecast-day strong {
-  font-size: clamp(1.18rem, 1.05rem + 0.55vw, 1.55rem);
+  font-size: clamp(1.5rem, 1.12rem + 1vw, 2.28rem);
 }
 
 .forecast-day p {
   margin: 0;
   color: rgba(255, 255, 255, 0.82);
   font-weight: 650;
-  font-size: 1rem;
+  font-size: clamp(1.08rem, 0.98rem + 0.42vw, 1.38rem);
   line-height: 1.25;
 }
 
