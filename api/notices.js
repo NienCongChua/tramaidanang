@@ -45,21 +45,26 @@ const defaultPosts = [
 ];
 
 module.exports = async function noticesHandler(req, res) {
-  if (req.method === "GET") {
-    const posts = await readPosts();
-    sendJson(res, 200, posts);
-    return;
-  }
+  try {
+    if (req.method === "GET") {
+      const posts = await readPosts();
+      sendJson(res, 200, posts);
+      return;
+    }
 
-  if (req.method === "PUT") {
-    const body = await readJsonBody(req);
-    const posts = normalizePosts(body);
-    await writePosts(posts);
-    sendJson(res, 200, posts);
-    return;
-  }
+    if (req.method === "PUT") {
+      const body = await readJsonBody(req);
+      const posts = normalizePosts(body);
+      await writePosts(posts);
+      sendJson(res, 200, posts);
+      return;
+    }
 
-  sendJson(res, 405, { error: "Method not allowed" });
+    sendJson(res, 405, { error: "Method not allowed" });
+  } catch (error) {
+    console.error("[notices] Không xử lý được request:", error);
+    sendJson(res, 500, { error: error.message || "Không lưu được thông báo." });
+  }
 };
 
 async function readPosts() {
@@ -129,9 +134,23 @@ function normalizeDateString(value) {
 }
 
 function readJsonBody(req) {
+  if (req.body && typeof req.body === "object") {
+    return Promise.resolve(req.body);
+  }
+
+  if (typeof req.body === "string") {
+    try {
+      return Promise.resolve(JSON.parse(req.body));
+    } catch {
+      return Promise.resolve(null);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     let body = "";
-    req.setEncoding("utf8");
+    if (typeof req.setEncoding === "function") {
+      req.setEncoding("utf8");
+    }
     req.on("data", (chunk) => {
       body += chunk;
       if (body.length > 1024 * 1024) {
@@ -140,7 +159,7 @@ function readJsonBody(req) {
     });
     req.on("end", () => {
       try {
-        resolve(JSON.parse(body || "null"));
+        resolve(body ? JSON.parse(body) : null);
       } catch {
         reject(new Error("JSON không hợp lệ."));
       }

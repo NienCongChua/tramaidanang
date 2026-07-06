@@ -188,9 +188,9 @@ function loadPosts() {
 
 async function fetchPosts() {
   const response = await fetch(NOTICE_API_URL, { cache: "no-store" });
-  const json = await response.json().catch(() => null);
+  const json = await parseJsonResponse(response);
   if (!response.ok || !Array.isArray(json)) {
-    throw new Error(json?.error || "Không tải được danh sách thông báo.");
+    throw new Error(json?.error || `Không tải được danh sách thông báo. Mã lỗi: ${response.status}`);
   }
   postsCache = json;
   return postsCache;
@@ -204,12 +204,22 @@ async function savePosts(posts) {
     },
     body: JSON.stringify(posts)
   });
-  const json = await response.json().catch(() => null);
+  const json = await parseJsonResponse(response);
   if (!response.ok || !Array.isArray(json)) {
-    throw new Error(json?.error || "Không lưu được thông báo.");
+    throw new Error(json?.error || `Không lưu được thông báo. Mã lỗi: ${response.status}`);
   }
   postsCache = json;
   return postsCache;
+}
+
+async function parseJsonResponse(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text.slice(0, 160) };
+  }
 }
 
 async function refreshAdminPosts() {
