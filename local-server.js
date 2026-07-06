@@ -5,6 +5,8 @@ const geminiHandler = require("./api/gemini");
 const ttsHandler = require("./api/tts");
 const weatherHandler = require("./api/weather");
 const adminDivisionsHandler = require("./api/admin-divisions");
+const noticesHandler = require("./api/notices");
+const noticeAudioHandler = require("./api/notice-audio");
 
 const ROOT_DIR = __dirname;
 const PORT = Number(process.env.PORT || 3000);
@@ -37,6 +39,16 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && req.url === "/api/admin-divisions") {
       await adminDivisionsHandler(req, res);
+      return;
+    }
+
+    if ((req.method === "GET" || req.method === "PUT") && req.url === "/api/notices") {
+      await noticesHandler(req, res);
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/notice-audio/claim") {
+      await noticeAudioHandler(req, res);
       return;
     }
 

@@ -1,4 +1,4 @@
-const STORAGE_KEY = "tram_ai_commune_posts";
+const NOTICE_API_URL = "/api/notices";
 const AUTH_KEY = "tram_ai_admin_authenticated";
 const SETTINGS_KEY = "tram_ai_system_settings";
 const ADMIN_USERNAME = "admin";
@@ -79,6 +79,7 @@ const settingsMessage = document.querySelector("#settingsMessage");
 const resetSettingsButton = document.querySelector("#resetSettingsButton");
 
 let editingId = null;
+let postsCache = [...defaultPosts];
 
 function isAuthenticated() {
   return sessionStorage.getItem(AUTH_KEY) === "true";
@@ -93,8 +94,7 @@ function showLogin() {
 function showAdmin() {
   loginScreen.hidden = true;
   adminApp.hidden = false;
-  ensureSeedPosts();
-  renderAdminList();
+  refreshAdminPosts();
   renderSettings();
 }
 
@@ -182,23 +182,46 @@ function handleLogout() {
   showLogin();
 }
 
-function ensureSeedPosts() {
-  if (!localStorage.getItem(STORAGE_KEY)) {
-    savePosts(defaultPosts);
-  }
-}
-
 function loadPosts() {
-  ensureSeedPosts();
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch {
-    return [];
-  }
+  return postsCache;
 }
 
-function savePosts(posts) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
+async function fetchPosts() {
+  const response = await fetch(NOTICE_API_URL, { cache: "no-store" });
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(json)) {
+    throw new Error(json?.error || "Không tải được danh sách thông báo.");
+  }
+  postsCache = json;
+  return postsCache;
+}
+
+async function savePosts(posts) {
+  const response = await fetch(NOTICE_API_URL, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(posts)
+  });
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(json)) {
+    throw new Error(json?.error || "Không lưu được thông báo.");
+  }
+  postsCache = json;
+  return postsCache;
+}
+
+async function refreshAdminPosts() {
+  postCountText.textContent = "Đang tải...";
+  adminList.innerHTML = `<div class="empty-state">Đang tải thông báo...</div>`;
+  try {
+    await fetchPosts();
+    renderAdminList();
+  } catch (error) {
+    postCountText.textContent = "Lỗi tải dữ liệu";
+    adminList.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "Không tải được thông báo.")}</div>`;
+  }
 }
 
 function escapeHtml(value) {
@@ -264,7 +287,7 @@ function fromDateTimeLocalValue(value) {
 }
 
 function renderAdminList() {
-  const posts = loadPosts().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const posts = [...loadPosts()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   postCountText.textContent = `${posts.length} thông báo`;
 
   if (!posts.length) {
@@ -296,7 +319,7 @@ function renderAdminList() {
     .join("");
 }
 
-function upsertPost(event) {
+async function upsertPost(event) {
   event.preventDefault();
   if (!isAuthenticated()) {
     showLogin();
@@ -317,47 +340,51 @@ function upsertPost(event) {
 
   const normalized = isFeatured ? posts.map((post) => ({ ...post, featured: false })) : posts;
 
-  if (editingId) {
-    const updated = normalized.map((post) =>
-      post.id === editingId
-        ? {
-            ...post,
-            title,
-            body,
-            time,
-            type,
-            featured: isFeatured,
-            audioEnabled,
-            audioRepeatCount,
-            audioPlayAt,
-            updatedAt: new Date().toISOString()
-          }
-        : post
-    );
-    savePosts(updated);
-  } else {
-    savePosts([
-      {
-        id: `post-${Date.now()}`,
-        title,
-        body,
-        time,
-        type,
-        featured: isFeatured,
-        audioEnabled,
-        audioRepeatCount,
-        audioPlayAt,
-        createdAt: new Date().toISOString()
-      },
-      ...normalized
-    ]);
-  }
+  try {
+    if (editingId) {
+      const updated = normalized.map((post) =>
+        post.id === editingId
+          ? {
+              ...post,
+              title,
+              body,
+              time,
+              type,
+              featured: isFeatured,
+              audioEnabled,
+              audioRepeatCount,
+              audioPlayAt,
+              updatedAt: new Date().toISOString()
+            }
+          : post
+      );
+      await savePosts(updated);
+    } else {
+      await savePosts([
+        {
+          id: `post-${Date.now()}`,
+          title,
+          body,
+          time,
+          type,
+          featured: isFeatured,
+          audioEnabled,
+          audioRepeatCount,
+          audioPlayAt,
+          createdAt: new Date().toISOString()
+        },
+        ...normalized
+      ]);
+    }
 
-  resetForm();
-  renderAdminList();
+    resetForm();
+    renderAdminList();
+  } catch (error) {
+    alert(error.message || "Không lưu được thông báo.");
+  }
 }
 
-function handleListClick(event) {
+async function handleListClick(event) {
   if (!isAuthenticated()) {
     showLogin();
     return;
@@ -387,14 +414,22 @@ function handleListClick(event) {
   }
 
   if (action === "pin") {
-    savePosts(posts.map((item) => ({ ...item, featured: item.id === id })));
-    renderAdminList();
+    try {
+      await savePosts(posts.map((item) => ({ ...item, featured: item.id === id })));
+      renderAdminList();
+    } catch (error) {
+      alert(error.message || "Không ghim được thông báo.");
+    }
   }
 
   if (action === "delete") {
-    savePosts(posts.filter((item) => item.id !== id));
-    if (editingId === id) resetForm();
-    renderAdminList();
+    try {
+      await savePosts(posts.filter((item) => item.id !== id));
+      if (editingId === id) resetForm();
+      renderAdminList();
+    } catch (error) {
+      alert(error.message || "Không xóa được thông báo.");
+    }
   }
 }
 
@@ -402,14 +437,18 @@ loginForm.addEventListener("submit", handleLogin);
 logoutButton.addEventListener("click", handleLogout);
 form.addEventListener("submit", upsertPost);
 resetButton.addEventListener("click", resetForm);
-seedButton.addEventListener("click", () => {
+seedButton.addEventListener("click", async () => {
   if (!isAuthenticated()) {
     showLogin();
     return;
   }
-  savePosts(defaultPosts);
-  resetForm();
-  renderAdminList();
+  try {
+    await savePosts(defaultPosts);
+    resetForm();
+    renderAdminList();
+  } catch (error) {
+    alert(error.message || "Không khôi phục được dữ liệu mẫu.");
+  }
 });
 adminList.addEventListener("click", handleListClick);
 

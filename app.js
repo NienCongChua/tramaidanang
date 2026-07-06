@@ -1,7 +1,7 @@
-const STORAGE_KEY = "tram_ai_commune_posts";
+const NOTICE_API_URL = "/api/notices";
+const NOTICE_AUDIO_CLAIM_URL = "/api/notice-audio/claim";
 const GEO_CACHE_KEY = "tram_ai_geo_cache";
 const ADMIN_DIVISIONS_CACHE_KEY = "tram_ai_admin_divisions_cache_v2";
-const NOTICE_AUDIO_STATE_KEY = "tram_ai_notice_audio_state";
 const SETTINGS_KEY = "tram_ai_system_settings";
 const ADMIN_DIVISIONS_API_URL = "/api/admin-divisions";
 const DEFAULT_COMMUNE = "X, tỉnh Z";
@@ -21,6 +21,7 @@ const AI_IDLE_CLOSE_MS = 15000;
 const AI_GOODBYE_CLOSE_MS = 3500;
 const NOTICE_TOTAL_VISIBLE = 4;
 const NOTICE_ROTATE_INTERVAL_MS = 5000;
+const NOTICE_POLL_INTERVAL_MS = 10000;
 const TICKER_PIXELS_PER_SECOND = 52;
 
 const defaultSettings = {
@@ -146,20 +147,36 @@ let aiIdleCloseTimer = null;
 let aiGoodbyeCloseTimer = null;
 let noticeAudioTimer = null;
 let isNoticeAudioPlaying = false;
-
-function ensureSeedPosts() {
-  if (!localStorage.getItem(STORAGE_KEY)) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(defaultPosts));
-  }
-}
+let hasNoPendingNoticeAudio = false;
+let postsCache = [...defaultPosts];
+let postsSignature = JSON.stringify(postsCache);
 
 function loadPosts() {
-  ensureSeedPosts();
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch {
-    return defaultPosts;
+  return postsCache;
+}
+
+async function refreshPosts(options = {}) {
+  const { forceRender = false } = options;
+  const response = await fetch(NOTICE_API_URL, { cache: "no-store" });
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(json)) {
+    throw new Error(json?.error || "Không tải được thông báo từ xã.");
   }
+
+  const nextSignature = JSON.stringify(json);
+  const hasChanged = nextSignature !== postsSignature;
+  postsCache = json;
+  postsSignature = nextSignature;
+
+  if (hasChanged) {
+    hasNoPendingNoticeAudio = false;
+  }
+
+  if (forceRender || hasChanged) {
+    renderPosts();
+  }
+
+  return postsCache;
 }
 
 function formatTime(date = new Date()) {
@@ -572,7 +589,7 @@ function scheduleNoticeRotation(rotatingPosts) {
 
 function renderPosts(options = {}) {
   const { skipTicker = false, isRotation = false } = options;
-  const posts = loadPosts().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const posts = [...loadPosts()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   const featured = posts.find((post) => post.featured) || posts[0];
   const rotatingPosts = posts.filter((post) => post.id !== featured?.id);
   const otherVisibleCount = NOTICE_TOTAL_VISIBLE - 1;
@@ -657,46 +674,6 @@ function scheduleTickerSpeedSync() {
   tickerResizeTimer = window.setTimeout(syncTickerSpeed, 120);
 }
 
-function loadNoticeAudioState() {
-  try {
-    return JSON.parse(sessionStorage.getItem(NOTICE_AUDIO_STATE_KEY)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function saveNoticeAudioState(state) {
-  try {
-    sessionStorage.setItem(NOTICE_AUDIO_STATE_KEY, JSON.stringify(state));
-  } catch {}
-}
-
-function noticeAudioSignature(post) {
-  return [
-    post.updatedAt || post.createdAt || "",
-    post.title || "",
-    post.body || "",
-    post.audioEnabled ? "1" : "0",
-    post.audioRepeatCount || 1,
-    post.audioPlayAt || ""
-  ].join("|");
-}
-
-function getNoticeAudioEntry(post, state) {
-  const signature = noticeAudioSignature(post);
-  const current = state[post.id];
-  if (!current || current.signature !== signature) {
-    state[post.id] = { signature, played: 0 };
-  }
-  return state[post.id];
-}
-
-function getNoticeAudioRepeatCount(post) {
-  const count = Number(post.audioRepeatCount || 1);
-  if (!Number.isFinite(count)) return 1;
-  return Math.min(Math.max(Math.round(count), 1), 10);
-}
-
 function getNoticeAudioPlayAt(post) {
   if (!post.audioPlayAt) return 0;
   const time = new Date(post.audioPlayAt).getTime();
@@ -714,19 +691,17 @@ function getNoticeAudioText(post) {
 
 function scheduleNoticeAudioPlayback() {
   window.clearTimeout(noticeAudioTimer);
+  noticeAudioTimer = null;
+  if (hasNoPendingNoticeAudio) return;
   if (isNoticeAudioPlaying) return;
 
-  const posts = loadPosts().sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  const state = loadNoticeAudioState();
+  const posts = [...loadPosts()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   const now = Date.now();
   let nextPlayAt = Infinity;
-  const duePosts = [];
+  let hasDuePost = false;
 
   for (const post of posts) {
     if (!post.audioEnabled) continue;
-    const repeatCount = getNoticeAudioRepeatCount(post);
-    const entry = getNoticeAudioEntry(post, state);
-    if (entry.played >= repeatCount) continue;
 
     const playAt = getNoticeAudioPlayAt(post);
     if (playAt > now) {
@@ -734,13 +709,12 @@ function scheduleNoticeAudioPlayback() {
       continue;
     }
 
-    duePosts.push(post);
+    hasDuePost = true;
+    break;
   }
 
-  saveNoticeAudioState(state);
-
-  if (duePosts.length) {
-    playNoticeAudioQueue(duePosts);
+  if (hasDuePost) {
+    claimAndPlayNoticeAudio();
     return;
   }
 
@@ -749,30 +723,48 @@ function scheduleNoticeAudioPlayback() {
   }
 }
 
-async function playNoticeAudioQueue(posts) {
+async function claimNoticeAudioPlayback() {
+  const response = await fetch(NOTICE_AUDIO_CLAIM_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    }
+  });
+  const json = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(json?.error || "Không lấy được lượt phát thông báo.");
+  }
+  return json;
+}
+
+async function claimAndPlayNoticeAudio() {
   if (isNoticeAudioPlaying) return;
   isNoticeAudioPlaying = true;
+  let shouldScheduleSoon = true;
 
   try {
-    for (const post of posts) {
-      const state = loadNoticeAudioState();
-      const entry = getNoticeAudioEntry(post, state);
-      const repeatCount = getNoticeAudioRepeatCount(post);
-
-      while (entry.played < repeatCount) {
-        entry.played += 1;
-        saveNoticeAudioState(state);
-        await speakText(getNoticeAudioText(post), "Đang phát thông báo từ xã", "", {
-          requireLiveMode: false
-        });
-        if (entry.played < repeatCount) {
-          await new Promise((resolve) => window.setTimeout(resolve, 1200));
-        }
+    const claim = await claimNoticeAudioPlayback();
+    if (claim.post) {
+      await speakText(getNoticeAudioText(claim.post), "Đang phát thông báo từ xã", "", {
+        requireLiveMode: false
+      });
+    } else if (claim.nextPlayAt) {
+      const nextPlayAt = new Date(claim.nextPlayAt).getTime();
+      if (Number.isFinite(nextPlayAt)) {
+        noticeAudioTimer = window.setTimeout(scheduleNoticeAudioPlayback, Math.max(nextPlayAt - Date.now(), 1000));
+        shouldScheduleSoon = false;
       }
+    } else {
+      hasNoPendingNoticeAudio = true;
+      shouldScheduleSoon = false;
     }
+  } catch (error) {
+    console.warn("[Trạm AI] Không đồng bộ được lượt phát thông báo:", error);
   } finally {
     isNoticeAudioPlaying = false;
-    scheduleNoticeAudioPlayback();
+    if (shouldScheduleSoon) {
+      noticeAudioTimer = window.setTimeout(scheduleNoticeAudioPlayback, 1200);
+    }
   }
 }
 
@@ -897,7 +889,11 @@ async function refreshWeather() {
 async function reloadHomeData() {
   elements.homeRefresh.classList.add("is-refreshing");
   updateClock();
-  renderPosts();
+  try {
+    await refreshPosts({ forceRender: true });
+  } catch {
+    renderPosts();
+  }
 
   try {
     await loadWeatherFromPosition();
@@ -1930,9 +1926,11 @@ function handleSuggestionClick(event) {
   handleAiSubmit();
 }
 
-ensureSeedPosts();
 updateClock();
 renderPosts();
+refreshPosts({ forceRender: true }).catch(() => {
+  elements.noticeUpdated.textContent = "Cập nhật: chưa kết nối dữ liệu";
+});
 setWeatherLoading("Đang tải dữ liệu thật...");
 loadWeatherFromPosition();
 
@@ -1988,10 +1986,14 @@ window.addEventListener("keydown", (event) => {
 });
 setInterval(updateClock, 1000);
 setInterval(refreshWeather, 15 * 60 * 1000);
-
-window.addEventListener("storage", (event) => {
-  if (event.key === STORAGE_KEY) renderPosts();
-});
+setInterval(() => {
+  refreshPosts().catch(() => {
+    elements.noticeUpdated.textContent = "Cập nhật: mất kết nối dữ liệu";
+  });
+}, NOTICE_POLL_INTERVAL_MS);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) scheduleNoticeAudioPlayback();
+  if (!document.hidden) {
+    refreshPosts().catch(() => {});
+    scheduleNoticeAudioPlayback();
+  }
 });
