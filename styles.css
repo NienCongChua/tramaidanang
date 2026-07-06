@@ -245,7 +245,7 @@ a {
 .editor-panel h2 {
   margin: 0;
   text-transform: uppercase;
-  font-size: clamp(1rem, 1.5vw, 1.45rem);
+  font-size: clamp(1.12rem, 1.2rem + 0.45vw, 1.45rem);
   letter-spacing: 0;
 }
 
@@ -282,7 +282,7 @@ a {
 .weather-icon {
   position: relative;
   z-index: 1;
-  font-size: clamp(5.8rem, 11vw, 9rem);
+  font-size: clamp(5.4rem, 4.7rem + 3vw, 9rem);
   filter: drop-shadow(0 14px 20px rgba(0, 0, 0, 0.25));
 }
 
@@ -293,7 +293,7 @@ a {
 
 .temperature strong {
   display: block;
-  font-size: clamp(4rem, 8vw, 7.2rem);
+  font-size: clamp(4.2rem, 3.45rem + 3.2vw, 7.2rem);
   line-height: 0.95;
   letter-spacing: 0;
 }
@@ -301,8 +301,9 @@ a {
 .temperature span {
   display: block;
   margin-top: 12px;
-  font-size: clamp(1.25rem, 2.4vw, 2rem);
+  font-size: clamp(1.35rem, 1.12rem + 0.95vw, 2rem);
   font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 .weather-stats {
@@ -336,7 +337,8 @@ a {
 }
 
 .weather-stats strong {
-  font-size: clamp(1.2rem, 2vw, 1.6rem);
+  font-size: clamp(1.22rem, 1.08rem + 0.55vw, 1.6rem);
+  overflow-wrap: anywhere;
 }
 
 .forecast-block,
@@ -375,7 +377,7 @@ a {
 
 .forecast-day time {
   font-weight: 700;
-  font-size: 1.05rem;
+  font-size: 1.08rem;
 }
 
 .forecast-day span {
@@ -383,13 +385,15 @@ a {
 }
 
 .forecast-day strong {
-  font-size: clamp(1.1rem, 2vw, 1.55rem);
+  font-size: clamp(1.18rem, 1.05rem + 0.55vw, 1.55rem);
 }
 
 .forecast-day p {
   margin: 0;
   color: rgba(255, 255, 255, 0.82);
   font-weight: 650;
+  font-size: 1rem;
+  line-height: 1.25;
 }
 
 .featured-notice {
@@ -1120,6 +1124,28 @@ select:focus {
     min-height: 190px;
   }
 
+  .temperature strong {
+    font-size: 4.25rem;
+  }
+
+  .temperature span {
+    font-size: 1.38rem;
+  }
+
+  .weather-stats div {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding-block: 14px;
+  }
+
+  .weather-stats small {
+    font-size: 1.04rem;
+  }
+
+  .forecast-day {
+    min-height: 124px;
+    padding-block: 12px;
+  }
+
   .weather-stats div + div,
   .forecast-day + .forecast-day {
     border-left: 0;
@@ -1190,11 +1216,20 @@ select:focus {
   }
 
   .temperature strong {
-    font-size: 3.45rem;
+    font-size: 3.85rem;
   }
 
   .weather-icon {
-    font-size: 4.7rem;
+    font-size: 4.9rem;
+  }
+
+  .temperature span {
+    font-size: 1.3rem;
+  }
+
+  .weather-stats strong,
+  .forecast-day strong {
+    font-size: 1.2rem;
   }
 
   .notice-item {
