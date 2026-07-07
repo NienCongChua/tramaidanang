@@ -118,6 +118,9 @@
     if (rows.length) {
       await supabaseRequest("/rest/v1/notices?on_conflict=id", {
         method: "POST",
+        headers: {
+          Prefer: "resolution=merge-duplicates,return=representation"
+        },
         body: JSON.stringify(rows)
       });
     }
