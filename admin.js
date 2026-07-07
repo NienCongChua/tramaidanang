@@ -1,4 +1,3 @@
-const NOTICE_API_URL = "/api/notices";
 const AUTH_KEY = "tram_ai_admin_authenticated";
 const SETTINGS_KEY = "tram_ai_system_settings";
 const ADMIN_USERNAME = "admin";
@@ -187,39 +186,17 @@ function loadPosts() {
 }
 
 async function fetchPosts() {
-  const response = await fetch(NOTICE_API_URL, { cache: "no-store" });
-  const json = await parseJsonResponse(response);
-  if (!response.ok || !Array.isArray(json)) {
-    throw new Error(json?.error || `Không tải được danh sách thông báo. Mã lỗi: ${response.status}`);
-  }
+  const json = await window.TramAiStore.fetchNotices();
+  if (!Array.isArray(json)) throw new Error("Không tải được danh sách thông báo.");
   postsCache = json;
   return postsCache;
 }
 
 async function savePosts(posts) {
-  const response = await fetch(NOTICE_API_URL, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(posts)
-  });
-  const json = await parseJsonResponse(response);
-  if (!response.ok || !Array.isArray(json)) {
-    throw new Error(json?.error || `Không lưu được thông báo. Mã lỗi: ${response.status}`);
-  }
+  const json = await window.TramAiStore.saveNotices(posts);
+  if (!Array.isArray(json)) throw new Error("Không lưu được thông báo.");
   postsCache = json;
   return postsCache;
-}
-
-async function parseJsonResponse(response) {
-  const text = await response.text().catch(() => "");
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { error: text.slice(0, 160) };
-  }
 }
 
 async function refreshAdminPosts() {

@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "build": "node scripts/generate-config.js",
     "start": "node local-server.js"
   }
 }

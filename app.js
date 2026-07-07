@@ -1,5 +1,3 @@
-const NOTICE_API_URL = "/api/notices";
-const NOTICE_AUDIO_CLAIM_URL = "/api/notice-audio/claim";
 const GEO_CACHE_KEY = "tram_ai_geo_cache";
 const ADMIN_DIVISIONS_CACHE_KEY = "tram_ai_admin_divisions_cache_v2";
 const SETTINGS_KEY = "tram_ai_system_settings";
@@ -157,11 +155,8 @@ function loadPosts() {
 
 async function refreshPosts(options = {}) {
   const { forceRender = false } = options;
-  const response = await fetch(NOTICE_API_URL, { cache: "no-store" });
-  const json = await response.json().catch(() => null);
-  if (!response.ok || !Array.isArray(json)) {
-    throw new Error(json?.error || "Không tải được thông báo từ xã.");
-  }
+  const json = await window.TramAiStore.fetchNotices();
+  if (!Array.isArray(json)) throw new Error("Không tải được thông báo từ xã.");
 
   const nextSignature = JSON.stringify(json);
   const hasChanged = nextSignature !== postsSignature;
@@ -724,17 +719,7 @@ function scheduleNoticeAudioPlayback() {
 }
 
 async function claimNoticeAudioPlayback() {
-  const response = await fetch(NOTICE_AUDIO_CLAIM_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    }
-  });
-  const json = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(json?.error || "Không lấy được lượt phát thông báo.");
-  }
-  return json;
+  return window.TramAiStore.claimNoticeAudio();
 }
 
 async function claimAndPlayNoticeAudio() {
